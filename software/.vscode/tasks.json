@@ -4,9 +4,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "make binary",
+            "label": "make and program binary",
             "type": "shell",
-            "command": "make",
+            "command": "make; make program",
             "group": "build",
             "isBackground": false,
             "presentation": {

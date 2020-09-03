@@ -29,7 +29,7 @@ smpte_clapper:
 	$(ARDUINO_CLI) compile $(VERBOSE) --build-path='$(BUILD_PATH)' --build-cache-path='$(BUILD_PATH)' -b $(BOARD_TYPE) $(SKETCH)
 
 program:
-	$(ARDUINO_CLI) upload $(VERBOSE) --build-path='$(BUILD_PATH)' --build-cache-path='$(BUILD_PATH)' -p $(SERIAL_PORT) --fqbn $(BOARD_TYPE) $(SKETCH)
+	$(ARDUINO_CLI) upload $(VERBOSE) -p $(SERIAL_PORT) --fqbn $(BOARD_TYPE) $(SKETCH)
 
 clean:
 	@rm -rf $(BUILD_PATH)
