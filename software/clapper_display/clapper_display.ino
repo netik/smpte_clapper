@@ -1,6 +1,7 @@
 #if !defined(ESP8266)
 #error This code is designed to run on ESP8266 and ESP8266-based boards! Please check your Tools->Board setting.
 #endif
+
 #include "LedControl.h"
 #include <Ticker.h>
 #include "slate.h"
