@@ -1,0 +1,4 @@
+(sym_lib_table
+  (lib (name clapper_symbols)(type Legacy)(uri ${KIPRJMOD}/clapper_symbols.lib)(options "")(descr ""))
+  (lib (name clapper-rescue)(type Legacy)(uri ${KIPRJMOD}/clapper-rescue.lib)(options "")(descr ""))
+)

@@ -1,18 +1,3 @@
-#if !defined(ESP8266)
-#error This code is designed to run on ESP8266 and ESP8266-based boards! Please check your Tools->Board setting.
-#endif
-
-#include "LedControl.h"
-#include <Ticker.h>
-#include "slate.h"
-
-#include <AceButton.h>
-using namespace ace_button;
-
-AceButton buttonA;
-AceButton buttonSelect;
-AceButton buttonClapper;
-
 /**
  * freeslate
  * J. Adams <jna@retina.net> 
@@ -28,6 +13,22 @@ AceButton buttonClapper;
  *   - Brightness control over display
  */
 
+#if !defined(ESP8266)
+#error This code is designed to run on ESP8266 and ESP8266-based boards! Please check your Tools->Board setting.
+#endif
+
+#include <Ticker.h>
+#include "LedControl.h"
+#include "slate.h"
+#include "ltc.h"
+
+#include <AceButton.h>
+using namespace ace_button;
+
+AceButton buttonA;
+AceButton buttonSelect;
+AceButton buttonClapper;
+
 /* EEPROM config */
 typedef struct configuration {
   // limit 512 bytes
@@ -35,39 +36,24 @@ typedef struct configuration {
   int frameRate;
 } CONFIG;
 
-/* frame divisors */
-typedef struct divisor {
-  float frameRate;
-  float msPerFrame;
-} DIVISOR;
-
 // On the ESP8266, note that these pins are the GPIO number not the physical pin and that
 // even though the device is a 5V device logic works fantastically fine on 3.3v!
 LedControl lc=LedControl(PIN_DISP_DIN, PIN_DISP_CLK, PIN_DISP_CS, 1);
 
-/**
- * 
- * SMPTE Time standard
- * https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=7291029
- * 
- * Another take on the standard:
- * https://www.connect.ecuad.ca/~mrose/pdf_documents/timecode.pdf
- * 
- */
-const DIVISOR rateDivisors[] = {
-  { 24, 0.024 }, 
-  { 25, 0.025 },
-  { 29.97, 0.02997 },
-  { 30, 0.03 }
-};
-
 /* Globals - System State */
-unsigned long currentTime;
-float frameDivisor = 0.03; // frame length in mS
 bool  inDropMode = false;
 float frameRate = 30;
+float secPerFrame = getDivisorForRate(frameRate);
+
+/* LTC Reader globals */
+const word sync = 0xBFFC;        // Sync word to expect when running tape forward
+uint8_t tc[10] = {0};            // ISR Buffer to store incoming bits
+volatile uint8_t xtc[8] = {0};   // Buffer to store valid TC data - sync bytes
+volatile uint8_t tcFlags = 0;    // Various flags used by ISR and main code
+uint32_t uSeconds;               // ISR store of last edge change time
 
 /* what are we doing? */
+TIMECODE currentTime;
 int state = STATE_HELLO;
 
 /** TBD
@@ -77,74 +63,139 @@ CONFIG *loadConfig() {
   return false;
 };
 
+/* LTC Reader */
+void ICACHE_RAM_ATTR handleTCChange() {
+  uint32_t edgeTimeDiff = micros() - uSeconds;            // Get time difference between this and last edge
+  uSeconds = micros();                                    // Store time of this edge
+  if ((edgeTimeDiff < uMin1) or (edgeTimeDiff > uMax0)) { // Drop out now if edge time not withing bounds
+    bitSet(tcFlags, tcFrameError);
+    return;
+  }
+  
+  if (edgeTimeDiff > uMax1)                               // A zero bit arrived
+  {
+    if (bitRead(tcFlags, tcHalfOne) == 1){                // But we are expecting a 1 edge
+      bitClear(tcFlags, tcHalfOne);
+      clearBuffer(tc, sizeof(tc));
+      return;
+    }
+    
+    // 0 bit
+    shiftRight(tc, sizeof(tc));                           // Rotate buffer right
+    // Shift replaces top bit with zero so nothing else to do
+    //bitClear(tc[0], 7);                                 // Reset the 1 bit in the buffer
+  }
+  else                                                    // Not zero so must be a 1 bit
+  { // 1 bit
+    if (bitRead(tcFlags, tcHalfOne) == 0){                // First edge of a 1 bit
+      bitSet(tcFlags, tcHalfOne);                         // Flag we have the first half
+      return;
+    }
+    // Second edge of a 1 bit
+    bitClear(tcFlags, tcHalfOne);                         // Clear half 1 flag
+    shiftRight(tc, sizeof(tc));                           // Rotate buffer right
+  
+    bitSet(tc[0], 7);                                     // Set the 1 bit in the buffer
+  }
 
-/**
- * So what I think we need to do is to maintain a frame number counter instead of a 
- * millis counter, and we increment that every second or so, but in the case of a drop
- * frame, we have to do:
- * 
- * Because 10 minutes is not evenly divisible by 18 frames, we use drop-frame timecode
- * and drop two frame numbers every minute; by the ninth minute, you have dropped all
- * 18 frame numbers. No frames need to be dropped the tenth
- * minute. That is how drop-frame timecode works. 
- * When you use drop-frame timecode, Premiere 5.x renumbers the
- * first two frames of every minute, except for every tenth minute.
- * 
- * Timecode measures time in Hours:Minutes:Seconds:Fractions-of-seconds called frames. 
- * However, in NTSC video, a frame is not an even fraction of a second! 
- * Thus, NTSC timecode is always subtly off from real time—by exactly 1.8 frames per minute. 
- * Drop-frame timecode numbering attempts to adjust for this discrepancy by dropping two 
- * numbers in the numbering sequence, once every minute except for every tenth minute (see the preceding section,
- * Mathematics of 29.97 video, for details).The numbers that are dropped are 
- * frames 00 and 01 of each minute; thus, drop-frame numbering across the 
- * minute boundary looks like this: 
- * ... 00:00:59:27, 00:00:59:28, 00:00:59:29, 00:01:00:02, 00:01:00:03, ...
- *
- * Note, however, that you are off by only 1.8 frames per minute. If you adjust by two 
- * full frames every minute, you are still off by a little. Let's go through a sequence 
- * of minutes, to see how far off we are each minute, and where each adjustment leaves us:
- * (see the graph)
- * 
- * On the 10 minute, you drop zero. 
- */
+  // Congratulations, we have managed to read a valid 0 or 1 bit into buffer
+  if (word(tc[0], tc[1]) == sync){                        // Last 2 bytes read = sync?
+    bitClear(tcFlags, tcFrameError);                      // Clear framing error
+    bitClear(tcFlags, tcOverrun);                         // Clear overrun error
+    if (bitRead(tcFlags, tcForceUpdate) == 1){
+      bitClear(tcFlags, tcValid);                         // Signal last TC read
+    }
+    if (bitRead(tcFlags, tcValid) == 1){                  // Last TC not read
+      bitSet(tcFlags, tcOverrun);                         // Flag overrun error
+      return;                                             // Do nothing else
+    }
+    for (uint8_t x = 0; x < sizeof(xtc); x++){            // Copy buffer without sync word
+      xtc[x] = tc[x + 2];
+    }
+#ifdef DEBUG_TC_SERIAL
+    Serial.println("valid tc");
+#endif
+    // we have valid timecode so we can reset our timer, which will stop incrementing.
+    timer1_write(TIMER_TICKS_INTR);
+    bitSet(tcFlags, tcValid);                             // Signal valid TC
+  }
+}
+
+void clearBuffer(uint8_t theArray[], uint8_t theArraySize){
+  for (uint8_t x = 0; x < theArraySize - 1; x++){
+    theArray[x] = 0;
+  }
+}
+
+void shiftRight(uint8_t theArray[], uint8_t theArraySize){
+  uint8_t x;
+  for (x = theArraySize; x > 0; x--){
+    uint8_t xBit = bitRead(theArray[x - 1], 0);
+    theArray[x] = theArray[x] >> 1;
+    theArray[x] = theArray[x] | (xBit << 7);
+  }
+  theArray[x] = theArray[x] >> 1;
+}
 
 /* ISR for timer tick */
 void ICACHE_RAM_ATTR onTimerISR(){
-  currentTime++;
-}
+  // implement a frame clock on a 1000uS / 1mS / .001 second interrupt
+  currentTime.micros++;
+  // we don't have incoming sync, let's do it ourselves. 
+  // in 1mS how many frames went by? 
+  currentTime.frames = currentTime.frames + secPerFrame;
 
+  if (currentTime.frames > frameRate-1) {
+    currentTime.frames = 0;
+    currentTime.seconds++;
+  }
+
+  if (currentTime.seconds > 59) { 
+      currentTime.seconds = 0;
+      currentTime.minutes++;
+  }
+
+  if (currentTime.minutes > 59) { 
+    currentTime.minutes = 0;
+    currentTime.hours++;
+  }
+
+  if (currentTime.hours > 23) { 
+    currentTime.hours = 0;
+    currentTime.seconds = 0;
+    currentTime.minutes = 0;
+    currentTime.frames = 0;
+  }
+
+}
 
 /**
  * show the current smpte time on the display.
  * @params {Integer} val number of milliseconds
  **/ 
-void displayCurrentTime(unsigned long val) {
+void displayCurrentTime(TIMECODE *tc) {
     // setDigit: addr, digit, value, decimal point.
-    // Digit 7 is far left.
-    int hours = numberOfHours(val / 1000);
-    int minutes = numberOfMinutes(val / 1000);
-    int seconds = numberOfSeconds(val / 1000);
-    int frames = numberOfMs(val) * frameDivisor;
-    
+
     // Hours
-    lc.setDigit(0,7,TENS(hours),false);
-    lc.setDigit(0,6,ONES(hours),true);
+    lc.setDigit(0,7,TENS(tc->hours),false);
+    lc.setDigit(0,6,ONES(tc->hours),true);
 
     // Minutes    
-    lc.setDigit(0,5,TENS(minutes),false);
-    lc.setDigit(0,4,ONES(minutes),true);
+    lc.setDigit(0,5,TENS(tc->minutes),false);
+    lc.setDigit(0,4,ONES(tc->minutes),true);
 
     // seconds
-    lc.setDigit(0,3,TENS(seconds),false);
-    lc.setDigit(0,2,ONES(seconds),true); // seems to set decimal point fine. 
+    lc.setDigit(0,3,TENS(tc->seconds),false);
+    lc.setDigit(0,2,ONES(tc->seconds),true); // seems to set decimal point fine. 
 
     // frames
-    lc.setDigit(0,1,TENS(frames),false);
-    lc.setDigit(0,0,ONES(frames),false);
+    lc.setDigit(0,1,TENS(tc->frames),false);
+    lc.setDigit(0,0,ONES(tc->frames),false);
 
     // Wink the LED once a second. (it appears to be active low?)
     // We try hard here not to write if we don't have to.
-    if (numberOfMs(val) < 500) { 
+
+    if (tc->frames < (frameRate/2)) { 
       digitalWrite(LED_BUILTIN, false);
     } else {
       digitalWrite(LED_BUILTIN, true);
@@ -180,8 +231,7 @@ void ledSetString(char *str) {
 
 };
 
-void handleButtonEvent(AceButton* button, uint8_t eventType,
-    uint8_t /* buttonState */)
+void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonState */)
 {
   // generic button handler 
   switch (eventType) {
@@ -198,10 +248,11 @@ void setup() {
   Serial.begin(115200);
   delay(1000); // wait for serial to settle
   Serial.println("");
-    
+
+  initTimecode(&currentTime);
+
   // Load Configuration from EEPROM.
   loadConfig();
-  currentTime = millis();
   
   /* LED Setup ---------------------------------- */
   /*
@@ -241,6 +292,12 @@ void setup() {
   buttonClapper.init(PIN_CLAPPER, HIGH, 2);
 
   pinMode(LED_BUILTIN, OUTPUT);
+
+  /* pins for timecode */
+  pinMode(PIN_TC_IN, INPUT);
+  pinMode(PIN_TC_OUT, OUTPUT);
+
+  attachInterrupt(digitalPinToInterrupt(PIN_TC_IN), handleTCChange, CHANGE);
 }
 
 void loop() {
@@ -249,6 +306,55 @@ void loop() {
   buttonSelect.check();
   buttonClapper.check();
   
+  if (bitRead(tcFlags, tcValid)) {
+#ifdef DEBUG_TC_SERIAL
+    char timeCode[12];               // For example code another buffer to write decoded timecode
+    char userBits[12];
+
+    timeCode[0] = (xtc[0] & 0x03) + '0';                    // 10's of hours
+    timeCode[1] = (xtc[1] & 0x0F) + '0';                    // hours
+    timeCode[2] = ':';                
+    timeCode[3] = (xtc[2] & 0x07) + '0';                    // 10's of minutes
+    timeCode[4] = (xtc[3] & 0x0F) + '0';                    // minutes
+    timeCode[5] =  ':';              
+    timeCode[6] = (xtc[4] & 0x07) + '0';                    // 10's of seconds
+    timeCode[7] = (xtc[5] & 0x0F) + '0';                    // seconds
+    timeCode[8] =  '.';              
+    timeCode[9] = (xtc[6] & 0x03) + '0';                    // 10's of frames
+    timeCode[10] = (xtc[7] & 0x0F) + '0';                   // frames
+    
+    userBits[0] = ((xtc[7] & 0xF0) >> 4) + '0';             // user bits 1
+    userBits[1] = ((xtc[6] & 0xF0) >> 4) + '0';             // user bits 2  
+    userBits[2] = '-';            
+    userBits[3] = ((xtc[5] & 0xF0) >> 4) + '0';             // user bits 3
+    userBits[4] = ((xtc[4] & 0xF0) >> 4) + '0';             // user bits 4
+    userBits[5] = '-';            
+    userBits[6] = ((xtc[3] & 0xF0) >> 4) + '0';             // user bits 5
+    userBits[7] = ((xtc[2] & 0xF0) >> 4) + '0';             // user bits 6
+    userBits[8] = '-';            
+    userBits[9] = ((xtc[1] & 0xF0) >> 4) + '0';             // user bits 7
+    userBits[10] = ((xtc[0] & 0xF0) >> 4) + '0';            // user bits 8
+    Serial.print(timeCode);
+    Serial.print("\t");
+    Serial.println(userBits); 
+#endif // DEBUG_TC_SERIAL
+
+    /* update current time */
+    unsigned long tcHours  = ((xtc[0] & 0x03) * 10) + (xtc[1] & 0x0F);
+    unsigned long tcMins   = ((xtc[2] & 0x07) * 10) + (xtc[3] & 0x0F);
+    unsigned long tcSecs   = ((xtc[4] & 0x07) * 10) + (xtc[5] & 0x0F);
+    unsigned long tcFrames = ((xtc[6] & 0x03) * 10) + (xtc[7] & 0x0F);
+
+    currentTime.hours = tcHours;
+    currentTime.minutes = tcMins;
+    currentTime.seconds = tcSecs;
+    currentTime.frames = tcFrames;
+
+    // Finished with TC so signal to ISR it can overwrite it with next TC
+    bitClear(tcFlags, tcValid);                          
+  }
+
+  // handle UI
   switch(state) {
     case STATE_HELLO:
       Serial.println("\n\n\nSlate Started.");
@@ -264,7 +370,7 @@ void loop() {
       break;
     case STATE_TIMECODE:
     default:
-      displayCurrentTime(currentTime);
+      displayCurrentTime(&currentTime);
   }
   
   delay(10);    // maybe not even needed.

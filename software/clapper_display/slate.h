@@ -3,6 +3,10 @@
 #define SECS_PER_HOUR (3600UL)
 #define SECS_PER_DAY  (SECS_PER_HOUR * 24L)
 
+#define MS_PER_MIN  (60000UL)
+#define MS_PER_HOUR (3600000UL)
+#define MS_PER_DAY  (MS_PER_HOUR * 24L)
+
 /* Useful Macros for getting elapsed time - requres input as number of seconds */
 #define numberOfSeconds(_time_) (_time_ % SECS_PER_MIN)
 #define numberOfMinutes(_time_) ((_time_ / SECS_PER_MIN) % SECS_PER_MIN)
@@ -121,9 +125,17 @@
 
 /* GPIO Pins -------------------------------------------- */
 /* display */
-#define PIN_DISP_CLK     PIN_G_D2 // test ok OUTPUT
-#define PIN_DISP_CS      PIN_G_D1 // test ok OUTPUT
 #define PIN_DISP_DIN     PIN_G_D0 // test ok OUTPUT
+#define PIN_DISP_CS      PIN_G_D1 // test ok OUTPUT
+#define PIN_DISP_CLK     PIN_G_D2 // test ok OUTPUT
+
+// G_D3 will fail boot if pulled LOW
+
+// G_D4 TC IN
+// G_D5 TC OUT
+
+#define PIN_TC_IN        PIN_G_D5 // gpio 14.
+#define PIN_TC_OUT       PIN_G_D4 // has led on it.
 
 /* buttons */
 #define PIN_CLAPPER      PIN_G_D6 // tbd, requires pulldown
@@ -131,9 +143,5 @@
 #define PIN_A            PIN_G_D7 // test ok INPUT. switch should be tied to +3.3v
 #define PIN_SELECT       PIN_G_D8 // test ok INPUT w/pulldown, switch should be tied to +3.3v
 
-#define PIN_TC_IN        A0       // solves our adc issue I guess.
-#define PIN_TC_OUT       PIN_G_D5 // gpio 14.
 
 /* end GPIO Pins ---------------------------------------- */
-
-#define NUM_BUTTONS      2
