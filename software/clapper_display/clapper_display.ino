@@ -13,6 +13,16 @@
  *      - Set Frame Rate
  *      - Set Display Brightness
  *   - Save/load eeprom config
+ * http://www.denecke.com/Support/Documents/TS-C_1013.pdf
+ * Battery voltage and low battery warning readout
+ * Time Out: Display times out when sticks are left open. 
+ * EL Backlight: Enable/disable in low brightness.
+ * Feed Alert: Reminds you when to jam. Hold Clap Frame: Displays the last time code after the user bits.
+ * Jam Lock: Inhibits running time code without jamming.
+ * Plus 1 FrameReader: Time code is displayed in real time when in read mode.
+ * Flash Frame: Changes intensity to ensure exposure. 
+ * Scroll back: Push Set button while sticks are closed to displayscroll back of previous claps.
+ *    Scroll back memory is cleared at power off.
  */
 
 #if !defined(ESP8266)
@@ -224,15 +234,13 @@ void displayCurrentTime(TIMECODE *tc) {
 }
 
 void showFrameRate() {
-    lc.clearDisplay(0);
-  
-    lc.setDigit(0,3,TENS(frameRate),false);
-    lc.setDigit(0,2,ONES(frameRate),false);
+  // show frame rate on right side of display. does not clear screen.
+  lc.setDigit(0,3,TENS(frameRate),false);
+  lc.setDigit(0,2,ONES(frameRate),false);
 
-    if (inDropMode) {
-      lc.setChar(0,0,'d',false);
-    }
-
+  if (inDropMode) {
+    lc.setChar(0,0,'d',false);
+  }
 }
 
 void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonState */)
@@ -430,7 +438,7 @@ void loop() {
       lc.clearDisplay(0);
       lc.setString(0,7,"1.0", 0);
       delay(500);
-      lc.setString(0,7,"FRATE", 0);
+      lc.setString(0,7,"FP5", 0);
       showFrameRate();
       delay(500);
       lc.clearDisplay(0);
