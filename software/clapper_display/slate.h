@@ -20,7 +20,7 @@
 #define STATE_HELLO     0
 #define STATE_TIMECODE  1
 #define STATE_MENU      2
-#define STATE_FRSELECT  3
+#define STATE_CLAP      3
 
 /* return the place value for a number */
 #define TENS(n) (floor((n) / 10))

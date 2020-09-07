@@ -8,9 +8,11 @@
  * 
  * TODO:
  *   - SMPTE timecode generation
+ *   - Frame Rate Error Alarm (how?!!)
  *   - Menu system 
- *      - Frame rate
- *      - Brightness
+ *      - Set Frame Rate
+ *      - Set Display Brightness
+ *   - Save/load eeprom config
  */
 
 #if !defined(ESP8266)
@@ -32,8 +34,10 @@ AceButton buttonClapper;
 /* EEPROM config */
 typedef struct configuration {
   // limit 512 bytes
+  int version;
   int displayBrightness;
   int frameRate;
+  char magic[4]; // used for checking if config is init'd
 } CONFIG;
 
 // On the ESP8266, note that these pins are the GPIO number not the physical pin and that
@@ -51,6 +55,7 @@ uint8_t tc[10] = {0};            // ISR Buffer to store incoming bits
 volatile uint8_t xtc[8] = {0};   // Buffer to store valid TC data - sync bytes
 volatile uint8_t tcFlags = 0;    // Various flags used by ISR and main code
 uint32_t uSeconds;               // ISR store of last edge change time
+bool hasSeenValidTC = false;     // if we have ever gotten valid time code, this is true.
 
 /* what are we doing? */
 TIMECODE currentTime;
@@ -115,10 +120,12 @@ void ICACHE_RAM_ATTR handleTCChange() {
 #ifdef DEBUG_TC_SERIAL
     Serial.println("valid tc");
 #endif
+
     // we have valid timecode so we can reset our timer, which will now jam sync'd to the
     // timecode. Our frame timer should now match their frame timer give or take a few uS
     timer1_write(rateDivisors[currentDivisor].cpuTicksPerFrame);
     bitSet(tcFlags, tcValid);                             // Signal valid TC
+    hasSeenValidTC = true;
   }
 }
 
@@ -218,10 +225,7 @@ void displayCurrentTime(TIMECODE *tc) {
 
 void showFrameRate() {
     lc.clearDisplay(0);
-
-    lc.setChar(0, 7, 'F', false);
-    lc.setChar(0, 5, 'rRt', false);
-
+  
     lc.setDigit(0,3,TENS(frameRate),false);
     lc.setDigit(0,2,ONES(frameRate),false);
 
@@ -231,18 +235,6 @@ void showFrameRate() {
 
 }
 
-void ledSetString(char *str) {
-  char *x = str;
-  int pos = 7;
-  
-  while (pos >= 0 && *x != '\0') {
-     lc.setChar(0, pos, *x, false);
-     pos--;
-     x++;
-   }
-
-};
-
 void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonState */)
 {
   // generic button handler 
@@ -250,7 +242,30 @@ void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonSt
     case AceButton::kEventPressed:
     case AceButton::kEventRepeatPressed: {  
       uint8_t pin = button->getPin();
-      switch    
+      Serial.println(pin);
+
+      switch (state) {
+        case STATE_TIMECODE:
+          switch(pin) { 
+            case PIN_CLAPPER:
+              Serial.println("Clap");
+              state = STATE_CLAP;
+              break;
+            case PIN_SELECT:
+              Serial.println("Select");
+              showMenu();
+              state = STATE_MENU;
+              break;
+          }
+        break;
+        case STATE_MENU:
+          switch(pin) { 
+            case PIN_SELECT:
+              state = STATE_TIMECODE;
+              break;
+          }
+        break;
+      }
     }
   }
 }
@@ -317,6 +332,39 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(PIN_TC_IN), handleTCChange, CHANGE);
 }
 
+void showMenu() {
+  lc.clearDisplay(0);
+  lc.setString(0,7, "5ETUP", 0);
+}
+
+void showUserBits() {
+  // show the user bits on the LEDs.
+  char userBits[9];
+
+  if (hasSeenValidTC) {
+    userBits[0] = ((xtc[7] & 0xF0) >> 4) + '0';             // user bits 1
+    userBits[1] = ((xtc[6] & 0xF0) >> 4) + '0';             // user bits 2  
+            
+    userBits[2] = ((xtc[5] & 0xF0) >> 4) + '0';             // user bits 3
+    userBits[3] = ((xtc[4] & 0xF0) >> 4) + '0';             // user bits 4
+        
+    userBits[4] = ((xtc[3] & 0xF0) >> 4) + '0';             // user bits 5
+    userBits[5] = ((xtc[2] & 0xF0) >> 4) + '0';             // user bits 6
+              
+    userBits[6] = ((xtc[1] & 0xF0) >> 4) + '0';             // user bits 7
+    userBits[7] = ((xtc[0] & 0xF0) >> 4) + '0'; 
+    userBits[8] = '\0';
+    
+    // show the string with all of the dots turned on
+    lc.setString(0, 7,userBits, 0xff);
+  } else {
+    // since we've never sync'd before we don't have user bits. tell the user.
+    lc.setString(0, 7, "00c0de", 0x00);
+    lc.setDigit(0,1,TENS(frameRate),false);
+    lc.setDigit(0,0,ONES(frameRate),false);
+  }
+}
+
 void loop() {
   // like a videogame we have a state machine.
   buttonA.check();
@@ -350,7 +398,8 @@ void loop() {
     userBits[7] = ((xtc[2] & 0xF0) >> 4) + '0';             // user bits 6
     userBits[8] = '-';            
     userBits[9] = ((xtc[1] & 0xF0) >> 4) + '0';             // user bits 7
-    userBits[10] = ((xtc[0] & 0xF0) >> 4) + '0';            // user bits 8
+    userBits[10] = ((xtc[0] & 0xF0) >> 4) + '0';
+                // user bits 8
     Serial.print(timeCode);
     Serial.print("\t");
     Serial.println(userBits); 
@@ -374,19 +423,32 @@ void loop() {
   // handle UI
   switch(state) {
     case STATE_HELLO:
+      // say hi!
       Serial.println("\n\n\nSlate Started.");
-      showFrameRate();
+      lc.setString(0,7,"FREECODE", 0);
       delay(1000);
+      lc.clearDisplay(0);
+      lc.setString(0,7,"1.0", 0);
+      delay(500);
+      lc.setString(0,7,"FRATE", 0);
+      showFrameRate();
+      delay(500);
       lc.clearDisplay(0);
 
       state = STATE_TIMECODE;
       Serial.println("Timecode Mode");
       break;
-    case STATE_MENU:
-      Serial.println("Menu Mode");
-      break;
+    case STATE_CLAP:
+      // when clapper closes do the thing.
+      // freeze timecode for about four frames.
+      delay(150);
+      // show user bits
+      showUserBits();
+      delay(1000);
+      lc.clearDisplay(0);
+      delay(1000);
+      state = STATE_TIMECODE;
     case STATE_TIMECODE:
-    default:
       displayCurrentTime(&currentTime);
   }
   
