@@ -28,10 +28,11 @@ all: smpte_clapper
 smpte_clapper: 
 	$(ARDUINO_CLI) compile $(VERBOSE) --build-path='$(BUILD_PATH)' --build-cache-path='$(BUILD_PATH)' -b $(BOARD_TYPE) $(SKETCH)
 
-program:
+upload:
 	$(ARDUINO_CLI) upload $(VERBOSE) -p $(SERIAL_PORT) --fqbn $(BOARD_TYPE) $(SKETCH)
 
 clean:
-	@rm -rf $(BUILD_PATH)
+	rm -rf ./_build
+	rm -rf $(BUILD_PATH)
 	@rm *.elf
 	@rm *.hex

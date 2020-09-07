@@ -4,9 +4,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "make and program binary",
+            "label": "make binary and upload",
             "type": "shell",
-            "command": "make && make program",
+            "command": "make && make upload",
             "group": "build",
             "isBackground": false,
             "presentation": {
@@ -22,7 +22,7 @@
             "label": "flash binary",
             "type": "shell",
             "command": "make program",
-            "group": "test",
+            "group": "build",
             "isBackground": false,
             "presentation": {
                 "echo": true,

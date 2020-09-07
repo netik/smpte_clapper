@@ -28,8 +28,7 @@ typedef struct timecode {
    int hours;
    int minutes;
    int seconds;
-   float frames;
-   unsigned long micros;
+   int frames;
    char userBits[12];
 } TIMECODE;
 
@@ -46,10 +45,12 @@ enum flagBits {
 typedef struct divisor {
   float frameRate;
   float secPerFrame;
+  unsigned long cpuTicksPerFrame;
 } DIVISOR;
 
 /* prototypes */
 extern void initTimecode(TIMECODE *);
-extern float getDivisorForRate(float);
+extern int getDivisorForRate(float);
+extern const DIVISOR rateDivisors[];
 
 #endif // __LTC_H__

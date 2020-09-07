@@ -26,9 +26,6 @@
 #define TENS(n) (floor((n) / 10))
 #define ONES(n) ((n) - (floor((n) / 10)) * 10)
 
-/* how often we hit the interrupt for the timer */
-#define TIMER_TICKS_INTR 5000
-
 /* ESP8266 pin notes
 
    D0 = GPIO16 (WAKE), pin 4, Data in, no interrupt, no pwm, no i2c
@@ -134,14 +131,16 @@
 // G_D4 TC IN
 // G_D5 TC OUT
 
-#define PIN_TC_IN        PIN_G_D5 // gpio 14.
-#define PIN_TC_OUT       PIN_G_D4 // has led on it.
+#define PIN_TC_IN        PIN_G_D5 // INPUT cap and voltage divider
+#define PIN_TC_OUT       PIN_G_D4 // OUTPUT has led on it.
 
 /* buttons */
-#define PIN_CLAPPER      PIN_G_D6 // tbd, requires pulldown
+#define PIN_CLAPPER      PIN_G_D6 // test ok INPUT, 
+#define PIN_A            PIN_G_D7 // test ok INPUT, switch should be tied to +3.3v
+#define PIN_SELECT       PIN_G_D8 // test ok INPUT, w/pulldown, switch should be tied to +3.3v
 
-#define PIN_A            PIN_G_D7 // test ok INPUT. switch should be tied to +3.3v
-#define PIN_SELECT       PIN_G_D8 // test ok INPUT w/pulldown, switch should be tied to +3.3v
-
+/* switches on my protoboard are:
+ * 13, 12, 15
+ * D7, 
 
 /* end GPIO Pins ---------------------------------------- */

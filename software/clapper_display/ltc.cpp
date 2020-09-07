@@ -3,20 +3,21 @@
 #include <Ticker.h>
 
 const DIVISOR rateDivisors[] = {
-  // rate  seconds per frame
-  { 24,    0.041666667  }, 
-  { 25,    0.04,        },
-  { 29.97, 0.0333667    },
-  { 30,    0.033333333   },
-  { NULL,  NULL }
+  // rate,  seconds per frame, cpu ticks/frame
+  { 24,    0.041666667,  3333333 }, 
+  { 25,    0.04,         3200000 },
+  { 29.97, 0.0333667,    2669336 },
+  { 30,    0.033333333,  2666667 },
+  { NULL,  NULL, NULL }
 };
 
 void initTimecode(TIMECODE *tc) {
-  tc->hours = tc->minutes = tc->seconds = tc->frames = tc->micros = 0;
+  tc->hours = tc->minutes = tc->seconds = tc->frames = 0;
+    
   memset(tc->userBits, 0, sizeof(tc->userBits));
 }
 
-float getDivisorForRate(float rate) {
+int getDivisorForRate(float rate) {
   int x = 0;
   while (rateDivisors[x].frameRate != rate && rateDivisors[x].frameRate != NULL) { 
     x++;
@@ -26,5 +27,5 @@ float getDivisorForRate(float rate) {
     return 0; 
   }
 
-  return rateDivisors[x].secPerFrame;
+  return x;
 }

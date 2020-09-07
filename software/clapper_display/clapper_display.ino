@@ -7,10 +7,10 @@
  * Reads, writes, and displays SMPTE time code.
  * 
  * TODO:
- *   - SMPTE timecode jamming
  *   - SMPTE timecode generation
- *   - Menu system to select frame rate
- *   - Brightness control over display
+ *   - Menu system 
+ *      - Frame rate
+ *      - Brightness
  */
 
 #if !defined(ESP8266)
@@ -43,7 +43,7 @@ LedControl lc=LedControl(PIN_DISP_DIN, PIN_DISP_CLK, PIN_DISP_CS, 1);
 /* Globals - System State */
 bool  inDropMode = false;
 float frameRate = 30;
-float secPerFrame = getDivisorForRate(frameRate);
+int currentDivisor = getDivisorForRate(frameRate);
 
 /* LTC Reader globals */
 const word sync = 0xBFFC;        // Sync word to expect when running tape forward
@@ -115,8 +115,9 @@ void ICACHE_RAM_ATTR handleTCChange() {
 #ifdef DEBUG_TC_SERIAL
     Serial.println("valid tc");
 #endif
-    // we have valid timecode so we can reset our timer, which will stop incrementing.
-    timer1_write(TIMER_TICKS_INTR);
+    // we have valid timecode so we can reset our timer, which will now jam sync'd to the
+    // timecode. Our frame timer should now match their frame timer give or take a few uS
+    timer1_write(rateDivisors[currentDivisor].cpuTicksPerFrame);
     bitSet(tcFlags, tcValid);                             // Signal valid TC
   }
 }
@@ -140,14 +141,27 @@ void shiftRight(uint8_t theArray[], uint8_t theArraySize){
 /* ISR for timer tick */
 void ICACHE_RAM_ATTR onTimerISR(){
   // implement a frame clock on a 1000uS / 1mS / .001 second interrupt
-  currentTime.micros++;
   // we don't have incoming sync, let's do it ourselves. 
   // in 1mS how many frames went by? 
-  currentTime.frames = currentTime.frames + secPerFrame;
+  currentTime.frames++;
 
   if (currentTime.frames > frameRate-1) {
     currentTime.frames = 0;
     currentTime.seconds++;
+
+    // when drop frame is enabled, every mimute starts at frame 2 instead of
+    // at frame 0, unless the minute is divisible by 10.
+    //
+    // see: http://dougkerr.net/Pumpkin/articles/SMPTE-29.97DF.pdf
+
+    if (inDropMode) { 
+      if (currentTime.seconds > 59) { 
+        // we're going into the next minute. 
+        if ((currentTime.minutes + 1) % 10 != 0) { 
+          currentTime.frames = 2;
+        }
+      }
+    }
   }
 
   if (currentTime.seconds > 59) { 
@@ -206,7 +220,7 @@ void showFrameRate() {
     lc.clearDisplay(0);
 
     lc.setChar(0, 7, 'F', false);
-    lc.setChar(0, 5, '-', false);
+    lc.setChar(0, 5, 'rRt', false);
 
     lc.setDigit(0,3,TENS(frameRate),false);
     lc.setDigit(0,2,ONES(frameRate),false);
@@ -215,8 +229,6 @@ void showFrameRate() {
       lc.setChar(0,0,'d',false);
     }
 
-    delay(2000);
-    lc.clearDisplay(0);
 }
 
 void ledSetString(char *str) {
@@ -238,7 +250,7 @@ void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonSt
     case AceButton::kEventPressed:
     case AceButton::kEventRepeatPressed: {  
       uint8_t pin = button->getPin();
-      Serial.println(pin);      
+      switch    
     }
   }
 }
@@ -266,16 +278,21 @@ void setup() {
   lc.clearDisplay(0);
 
   /* Master Clock ------------------------------- */
-  /* start the clock. we use hardware timer 1 instead of 0; 0 is used by WiFi */
+  /* start the clock. we use hardware timer 1 and cannot use 0 -- 0 is used by WiFi */
   timer1_attachInterrupt(onTimerISR);
 
   /* Set up master timer
    *  The clock on the ESP8266 runs at 80Mhz (or 80 ticks/us).
-   *  We run the divisor at TIM_DIV16 continuously to drive the master clock.  
-   *  5000 ticks = 100mS (80000000/16/5000)
+   *  We need very precise timing for frames, so let's use the timer to set up
+   *  a clock that exactly matches the frame rate.
    */
-  timer1_enable(TIM_DIV16, TIM_EDGE, TIM_LOOP);
-  timer1_write(TIMER_TICKS_INTR);
+  timer1_enable(TIM_DIV1, TIM_EDGE, TIM_LOOP);
+
+  /*
+   * Afaik the timers count down to zero and fire the interrupt at zero. 
+   * timer1_write resets this countdown.
+   */
+  timer1_write(rateDivisors[currentDivisor].cpuTicksPerFrame);
 
   /* Buttons and Blinky ------------------------- */
   ButtonConfig* baseConfig = ButtonConfig::getSystemButtonConfig();
@@ -358,20 +375,19 @@ void loop() {
   switch(state) {
     case STATE_HELLO:
       Serial.println("\n\n\nSlate Started.");
-      ledSetString("HELL0");
-      delay(1000);
       showFrameRate();
+      delay(1000);
+      lc.clearDisplay(0);
+
       state = STATE_TIMECODE;
       Serial.println("Timecode Mode");
       break;
     case STATE_MENU:
-      //Serial.println("Menu Mode");
-      ledSetString("F 30");
+      Serial.println("Menu Mode");
       break;
     case STATE_TIMECODE:
     default:
       displayCurrentTime(&currentTime);
   }
   
-  delay(10);    // maybe not even needed.
 }
