@@ -10,8 +10,11 @@
  *   - SMPTE timecode generation
  *   - Frame Rate Error Alarm (how?!!)
  *   - Menu system 
+ *      - Int or Ext
  *      - Set Frame Rate
  *      - Set Display Brightness
+ *      - Set modes
+ * 
  *   - Save/load eeprom config
  * http://www.denecke.com/Support/Documents/TS-C_1013.pdf
  * Battery voltage and low battery warning readout
@@ -29,17 +32,23 @@
 #error This code is designed to run on ESP8266 and ESP8266-based boards! Please check your Tools->Board setting.
 #endif
 
+#include <MD_UISwitch.h>
+#include <MD_Menu.h>
 #include <Ticker.h>
 #include "LedControl.h"
 #include "slate.h"
+#include "menu.h"
 #include "ltc.h"
 
 #include <AceButton.h>
 using namespace ace_button;
 
-AceButton buttonA;
+/* button defines */
+AceButton buttonUp;
+AceButton buttonDown;
 AceButton buttonSelect;
 AceButton buttonClapper;
+int buttonPending = NO_BUTTONS_PENDING;
 
 /* EEPROM config */
 typedef struct configuration {
@@ -49,6 +58,55 @@ typedef struct configuration {
   int frameRate;
   char magic[4]; // used for checking if config is init'd
 } CONFIG;
+
+MD_Menu::value_t vBuf;  // interface buffer for values
+
+// Menu Headers --------
+const PROGMEM MD_Menu::mnuHeader_t mnuHdr[] =
+{
+  // this doesn't matter as we only have one line of output.
+  { 10, "MD_Menu", 10, 15, 0 },
+};
+
+// Menu Items ----------
+const PROGMEM MD_Menu::mnuItem_t mnuItm[] =
+{
+  // Starting (Root) menu
+  { 10, "1nt/Ltc", MD_Menu::MNU_MENU, 11 },
+  { 11, "Tout", MD_Menu::MNU_MENU, 11 },
+  { 12, "Jloc", MD_Menu::MNU_MENU, 11 },
+  { 13, "Flsh", MD_Menu::MNU_MENU, 11 },
+  { 14, "Hold", MD_Menu::MNU_MENU, 11 },
+  { 15, "Pls1", MD_Menu::MNU_MENU, 11 },
+};
+
+// Input Items ---------
+const PROGMEM MD_Menu::mnuInput_t mnuInp[] =
+{
+  { 11, "Bool", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
+
+};
+
+/* menu handlers */
+MD_Menu::value_t *mnuIValueRqst(MD_Menu::mnuId_t id, bool bGet)
+// Value request callback for integers variables
+{
+  MD_Menu::value_t *r = &vBuf;
+}
+
+MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
+// Value request callback for boolean variable
+{
+  MD_Menu::value_t *r = &vBuf;
+}
+
+
+
+// bring it all together in the global menu object
+MD_Menu M(navigation, display,        // user navigation and display
+  mnuHdr, ARRAY_SIZE(mnuHdr), // menu header data
+  mnuItm, ARRAY_SIZE(mnuItm), // menu item data
+  mnuInp, ARRAY_SIZE(mnuInp));// menu input data
 
 // On the ESP8266, note that these pins are the GPIO number not the physical pin and that
 // even though the device is a 5V device logic works fantastically fine on 3.3v!
@@ -255,31 +313,143 @@ void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonSt
       switch (state) {
         case STATE_TIMECODE:
           switch(pin) { 
-            case PIN_CLAPPER:
+            case PIN_BTN_CLAPPER:
               Serial.println("Clap");
               state = STATE_CLAP;
               break;
-            case PIN_SELECT:
+            case PIN_BTN_SELECT:
               Serial.println("Select");
-              showMenu();
               state = STATE_MENU;
+              M.runMenu(true);
               break;
           }
         break;
         case STATE_MENU:
-          switch(pin) { 
-            case PIN_SELECT:
-              state = STATE_TIMECODE;
-              break;
-          }
+          // STATE_MENU is handled by MD_Menu here.
+          buttonPending = pin;
         break;
       }
     }
   }
 }
 
+bool display(MD_Menu::userDisplayAction_t action, char *msg)
+// Output display to a one of 2 line LCD display. 
+// For a one line display, comment out the L0 handling code.
+// The output display line is cleared with spaces before the
+// requested message is shown.
+{
+  switch (action)
+  {
+   case MD_Menu::DISP_INIT:
+     lc.clearDisplay(0);
+   break;  
+
+   case MD_Menu::DISP_CLEAR:
+    lc.clearDisplay(0);
+   break;
+
+  case MD_Menu::DISP_L1:
+    lc.setString(0,7, msg, 0);
+    break;
+  }
+
+  return(true);
+}
+
+MD_Menu::userNavAction_t navigation(uint16_t &incDelta)
+{
+  // it's always one move.
+  incDelta = 1;
+
+  // since our button handler is evented, we look at buttonPending
+  // to see if we have anything to do.
+  switch(buttonPending) {
+    case PIN_BTN_UP:
+      Serial.println("up");
+      buttonPending = NO_BUTTONS_PENDING;
+      return (MD_Menu::NAV_DEC);
+    break;
+
+    case PIN_BTN_DOWN:
+      Serial.println("dn");
+      buttonPending = NO_BUTTONS_PENDING;
+      return (MD_Menu::NAV_INC);
+    break;
+
+    case PIN_BTN_SELECT:
+      Serial.println("sel");
+      buttonPending = NO_BUTTONS_PENDING;
+      return (MD_Menu::NAV_SEL);
+    break;
+
+    default:
+      // nothing to do, clear it.
+      buttonPending = NO_BUTTONS_PENDING;
+      return(MD_Menu::NAV_NULL);
+  }
+}
+
+void setupTimer() {
+  /* start the clock. we use hardware timer 1 and cannot use 0 -- 0 is used by WiFi */
+  timer1_attachInterrupt(onTimerISR);
+
+  /* Set up master timer
+   *
+   * The clock on the ESP8266 runs at 80Mhz (or 80 ticks/us).
+   * We need very precise timing for frames, so let's use the timer to set up
+   * a clock that exactly matches the frame rate.
+   */
+  timer1_enable(TIM_DIV1, TIM_EDGE, TIM_LOOP);
+
+  /*
+   * Afaik the timers count down to zero and fire the interrupt at zero. 
+   * timer1_write resets this countdown.
+   */
+  timer1_write(rateDivisors[currentDivisor].cpuTicksPerFrame);
+}
+
+void setupLED() { 
+  /*
+   The MAX72XX is in power-saving mode on startup,
+   we have to do a wakeup call
+   */   
+  lc.shutdown(0,false);
+  /* Set the brightness to a medium values */
+  lc.setIntensity(0,8);
+  /* and clear the display */
+  lc.clearDisplay(0);
+}
+
+void setupButtonsandPins() {
+
+  ButtonConfig* baseConfig = ButtonConfig::getSystemButtonConfig();
+  baseConfig->setEventHandler(handleButtonEvent);
+  baseConfig->setFeature(ButtonConfig::kFeatureClick);
+  
+  pinMode(PIN_BTN_SELECT, INPUT);
+  buttonSelect.init(PIN_BTN_SELECT, HIGH, 0);
+  
+  pinMode(PIN_BTN_UP, INPUT);
+  buttonUp.init(PIN_BTN_UP, HIGH, 1);
+
+  pinMode(PIN_BTN_DOWN, INPUT);
+  // since PIN_BTN_DOWN is zero, and the function is overloaded,
+  // we need a cast to clear the compiler here. ugh.
+  buttonDown.init((uint8_t)PIN_BTN_DOWN, HIGH, 2);
+
+  pinMode(PIN_BTN_CLAPPER, INPUT);
+  buttonClapper.init(PIN_BTN_CLAPPER, HIGH, 3);
+
+  pinMode(LED_BUILTIN, OUTPUT);
+
+  /* pins for timecode */
+  pinMode(PIN_TC_IN, INPUT);
+  pinMode(PIN_TC_OUT, OUTPUT);
+}
+
 void setup() {
-  // start serial
+  // Start serial
   Serial.begin(115200);
   delay(1000); // wait for serial to settle
   Serial.println("");
@@ -290,54 +460,21 @@ void setup() {
   loadConfig();
   
   /* LED Setup ---------------------------------- */
-  /*
-   The MAX72XX is in power-saving mode on startup,
-   we have to do a wakeup call
-   */   
-  lc.shutdown(0,false);
-  /* Set the brightness to a medium values */
-  lc.setIntensity(0,8);
-  /* and clear the display */
-  lc.clearDisplay(0);
+  setupLED();
 
   /* Master Clock ------------------------------- */
-  /* start the clock. we use hardware timer 1 and cannot use 0 -- 0 is used by WiFi */
-  timer1_attachInterrupt(onTimerISR);
-
-  /* Set up master timer
-   *  The clock on the ESP8266 runs at 80Mhz (or 80 ticks/us).
-   *  We need very precise timing for frames, so let's use the timer to set up
-   *  a clock that exactly matches the frame rate.
-   */
-  timer1_enable(TIM_DIV1, TIM_EDGE, TIM_LOOP);
-
-  /*
-   * Afaik the timers count down to zero and fire the interrupt at zero. 
-   * timer1_write resets this countdown.
-   */
-  timer1_write(rateDivisors[currentDivisor].cpuTicksPerFrame);
+  setupTimer();
 
   /* Buttons and Blinky ------------------------- */
-  ButtonConfig* baseConfig = ButtonConfig::getSystemButtonConfig();
-  baseConfig->setEventHandler(handleButtonEvent);
-  baseConfig->setFeature(ButtonConfig::kFeatureClick);
-  
-  pinMode(PIN_SELECT, INPUT);
-  buttonSelect.init(PIN_SELECT, HIGH, 0);
-  
-  pinMode(PIN_A, INPUT);
-  buttonA.init(PIN_A, HIGH, 1);
+  setupButtonsandPins();
 
-  pinMode(PIN_CLAPPER, INPUT);
-  buttonClapper.init(PIN_CLAPPER, HIGH, 2);
-
-  pinMode(LED_BUILTIN, OUTPUT);
-
-  /* pins for timecode */
-  pinMode(PIN_TC_IN, INPUT);
-  pinMode(PIN_TC_OUT, OUTPUT);
-
+  /* Setup the interrupt on TC_IN for LTC reading */
   attachInterrupt(digitalPinToInterrupt(PIN_TC_IN), handleTCChange, CHANGE);
+
+  /* menu */
+  M.begin();
+  M.setMenuWrap(true);
+  M.setTimeout(MENU_TIMEOUT);
 }
 
 void showMenu() {
@@ -374,11 +511,13 @@ void showUserBits() {
 }
 
 void loop() {
-  // like a videogame we have a state machine.
-  buttonA.check();
+  // check all the buttons for activity.
+  buttonUp.check();
+  buttonDown.check();
   buttonSelect.check();
   buttonClapper.check();
   
+  // Do we have valid timecode yet?
   if (bitRead(tcFlags, tcValid)) {
 #ifdef DEBUG_TC_SERIAL
     char timeCode[12];               // For example code another buffer to write decoded timecode
@@ -428,7 +567,7 @@ void loop() {
     bitClear(tcFlags, tcValid);                          
   }
 
-  // handle UI
+  // like a video game, we have a state machine.
   switch(state) {
     case STATE_HELLO:
       // say hi!
@@ -436,8 +575,9 @@ void loop() {
       lc.setString(0,7,"FREECODE", 0);
       delay(1000);
       lc.clearDisplay(0);
-      lc.setString(0,7,"1.0", 0);
+      lc.setString(0,7,"Ver  1.0", 0);
       delay(500);
+      lc.clearDisplay(0);
       lc.setString(0,7,"FP5", 0);
       showFrameRate();
       delay(500);
@@ -456,8 +596,18 @@ void loop() {
       lc.clearDisplay(0);
       delay(1000);
       state = STATE_TIMECODE;
+      break;
     case STATE_TIMECODE:
       displayCurrentTime(&currentTime);
+      break;
+    case STATE_MENU:
+      // handle timeouts. If menu times out we go back to TC
+      if (M.isInMenu()) {
+        M.runMenu();
+      } else {
+        state = STATE_TIMECODE;
+      }
+      break;
   }
   
 }

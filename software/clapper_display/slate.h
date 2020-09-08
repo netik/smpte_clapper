@@ -26,7 +26,8 @@
 #define TENS(n) (floor((n) / 10))
 #define ONES(n) ((n) - (floor((n) / 10)) * 10)
 
-/* ESP8266 pin notes
+/* ESP8266 Pin Noes
+   https://randomnerdtutorials.com/esp8266-pinout-reference-gpios/
 
    D0 = GPIO16 (WAKE), pin 4, Data in, no interrupt, no pwm, no i2c
    D1 = GPIO5 (i2c SCL), pin 20, CS, ok
@@ -94,8 +95,8 @@
  *   A0 DAC             Analog input, max 3.3V input A0
  *   TX TXD             TXD
  *   RX RXD             RXD
- *   D0 IO              GPIO16
- *   D1 IO, SCL         GPIO5
+ *   D0 IO              GPIO16 - display
+ *   D1 IO, SCL         GPIO5   
  *   D2 IO, SDA         GPIO4
  *   D3 IO,10k Pull-up  GPIO0
  *   D4 IO, 10k pull-up, BUILTIN_LED GPIO2
@@ -111,7 +112,7 @@
  
 /**
  * GPIO0: pull low during boot for flash mode (connects to a push button).
- *        Other than that, usable as GPIO but beware of waht you connect to it.
+ *        Other than that, usable as GPIO but beware of what you connect to it.
  * GPIO1, 3: TX and RX (Serial). Also usable as GPIO if not using serial.
  * GPIO2: is pulled up during boot & internal LED (active LOW).
  * GPIO15: fixed external pull-down (for boot).
@@ -126,21 +127,15 @@
 #define PIN_DISP_CS      PIN_G_D1 // test ok OUTPUT
 #define PIN_DISP_CLK     PIN_G_D2 // test ok OUTPUT
 
-// G_D3 will fail boot if pulled LOW
-
-// G_D4 TC IN
-// G_D5 TC OUT
-
+#define PIN_TC_OUT       PIN_G_D4 // OUTPUT has module LED on it.
 #define PIN_TC_IN        PIN_G_D5 // INPUT cap and voltage divider
-#define PIN_TC_OUT       PIN_G_D4 // OUTPUT has led on it.
 
 /* buttons */
-#define PIN_CLAPPER      PIN_G_D6 // test ok INPUT, 
-#define PIN_A            PIN_G_D7 // test ok INPUT, switch should be tied to +3.3v
-#define PIN_SELECT       PIN_G_D8 // test ok INPUT, w/pulldown, switch should be tied to +3.3v
+#define PIN_BTN_CLAPPER  PIN_G_D6 // test ok INPUT, 
+#define PIN_BTN_UP       PIN_G_D7 // test ok INPUT, switch should be tied to +3.3v
+#define PIN_BTN_DOWN     PIN_G_D3 // test ok INPUT, switch needs to be tied to ground, do not press at boot.
+#define PIN_BTN_SELECT   PIN_G_D8 // test ok INPUT, w/pulldown, switch should be tied to +3.3v
 
-/* switches on my protoboard are:
- * 13, 12, 15
- * D7, 
+#define NO_BUTTONS_PENDING     -1
 
 /* end GPIO Pins ---------------------------------------- */
