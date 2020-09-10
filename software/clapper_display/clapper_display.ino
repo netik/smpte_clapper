@@ -149,7 +149,7 @@ const PROGMEM MD_Menu::mnuItem_t mnuItm[] =
   { 20, "Frt ", MD_Menu::MNU_INPUT, 20 },  // Internal generation, defaults to off
   { 30, "Drop", MD_Menu::MNU_INPUT, 30 },  // Internal generation, defaults to off
   { 40, "Tout", MD_Menu::MNU_INPUT, 40 },  // timeout
-  { 50, "Jloc", MD_Menu::MNU_INPUT, 50 },  // jam lock (no run w/o lock)
+  { 50, "jloc", MD_Menu::MNU_INPUT, 50 },  // jam lock (no run w/o lock)
   { 60, "Flsh", MD_Menu::MNU_INPUT, 60 },  // flash
   { 70, "Hold", MD_Menu::MNU_INPUT, 70 },  // hold
   { 80, "Pls1", MD_Menu::MNU_INPUT, 80 },  // plus one reader mode
@@ -162,7 +162,7 @@ const PROGMEM MD_Menu::mnuInput_t mnuInp[] =
   { 10, "1ntG", MD_Menu::INP_BOOL, mnuBValueRqst, 0, 0, 0, 0, 0, 0, nullptr },
   { 20, "Frt ", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listFrames },
   { 30, "Drop", MD_Menu::INP_BOOL, mnuBValueRqst, 0, 0, 0, 0, 0, 0, nullptr },
-  { 40, "Tout", MD_Menu::INP_LIST, mnuLValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
+  { 40, "Tout", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listTout },
   { 50, "jloc", MD_Menu::INP_BOOL, mnuBValueRqst, 0, 0, 0, 0, 0, 0, nullptr },
   { 60, "Flsh", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listFlash },
   { 70, "Hold", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listHold },
