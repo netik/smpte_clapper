@@ -43,9 +43,10 @@ enum flagBits {
 
 /* frame divisors */
 typedef struct divisor {
-  float frameRate;
-  float secPerFrame;
-  unsigned long cpuTicksPerFrame;
+  float frameRate;                // displayed frame rate
+  float secPerFrame;              // seconds per frame as float
+  unsigned long cpuTicksPerFrame; // cpu ticks (1uS) per frame
+  bool canDropFrames;             // if user can select drop frame mode
 } DIVISOR;
 
 /* prototypes */

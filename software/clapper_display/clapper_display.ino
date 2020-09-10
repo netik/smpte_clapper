@@ -7,15 +7,12 @@
  * Reads, writes, and displays SMPTE time code.
  * 
  * TODO:
+ *   - Test LTC reading for 30fps drop-frame, unsure on spec.
  *   - SMPTE timecode generation
- *   - Frame Rate Error Alarm (how?!!)
- *   - Menu system 
- *      - Int or Ext
- *      - Set Frame Rate
- *      - Set Display Brightness
- *      - Set modes
+ *      - should be switched and independent of jam sync.
+ *   - Frame Rate Error Alarms (how?!!)
+ *   - option to initialize config
  * 
- *   - Save/load eeprom config
  * http://www.denecke.com/Support/Documents/TS-C_1013.pdf
  * Battery voltage and low battery warning readout
  * Time Out: Display times out when sticks are left open. 
@@ -40,6 +37,10 @@
 #include "menu.h"
 #include "ltc.h"
 
+#include <EEPROM.h>
+#define CONFIG_VERSION 1
+#define CONFIG_MAGIC 0x110aded
+
 #include <AceButton.h>
 using namespace ace_button;
 
@@ -55,62 +56,18 @@ typedef struct configuration {
   // limit 512 bytes
   int version;
   int displayBrightness;
-  int frameRate;
-  char magic[4]; // used for checking if config is init'd
+  float frameRate;
+  bool drop;
+  bool internal;
+  int timeOut;
+  int feed;
+  bool jamLock;
+  int flashHeld;
+  int holdClap;
+  bool backlight; // future
+  bool plusOne;
+  unsigned int magic; // used for checking if config is init'd
 } CONFIG;
-
-MD_Menu::value_t vBuf;  // interface buffer for values
-
-// Menu Headers --------
-const PROGMEM MD_Menu::mnuHeader_t mnuHdr[] =
-{
-  // this doesn't matter as we only have one line of output.
-  { 10, "MD_Menu", 10, 15, 0 },
-};
-
-// Menu Items ----------
-const PROGMEM MD_Menu::mnuItem_t mnuItm[] =
-{
-  // Starting (Root) menu
-  { 10, "1nt/Ltc", MD_Menu::MNU_MENU, 11 },
-  { 11, "Tout", MD_Menu::MNU_MENU, 11 },
-  { 12, "Jloc", MD_Menu::MNU_MENU, 11 },
-  { 13, "Flsh", MD_Menu::MNU_MENU, 11 },
-  { 14, "Hold", MD_Menu::MNU_MENU, 11 },
-  { 15, "Pls1", MD_Menu::MNU_MENU, 11 },
-};
-
-// Input Items ---------
-const PROGMEM MD_Menu::mnuInput_t mnuInp[] =
-{
-  { 11, "Bool", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
-
-};
-
-/* menu handlers */
-MD_Menu::value_t *mnuIValueRqst(MD_Menu::mnuId_t id, bool bGet)
-// Value request callback for integers variables
-{
-  MD_Menu::value_t *r = &vBuf;
-}
-
-MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
-// Value request callback for boolean variable
-{
-  MD_Menu::value_t *r = &vBuf;
-}
-
-
-
-// bring it all together in the global menu object
-MD_Menu M(navigation, display,        // user navigation and display
-  mnuHdr, ARRAY_SIZE(mnuHdr), // menu header data
-  mnuItm, ARRAY_SIZE(mnuItm), // menu item data
-  mnuInp, ARRAY_SIZE(mnuInp));// menu input data
-
-// On the ESP8266, note that these pins are the GPIO number not the physical pin and that
-// even though the device is a 5V device logic works fantastically fine on 3.3v!
-LedControl lc=LedControl(PIN_DISP_DIN, PIN_DISP_CLK, PIN_DISP_CS, 1);
 
 /* Globals - System State */
 bool  inDropMode = false;
@@ -129,14 +86,193 @@ bool hasSeenValidTC = false;     // if we have ever gotten valid time code, this
 TIMECODE currentTime;
 int state = STATE_HELLO;
 
+CONFIG config;
+
+void initConfig() {
+  Serial.println("Config Init.");
+
+  config.version = 2;
+  config.displayBrightness = 5;
+
+  // user settable
+  config.frameRate = 4;
+  config.drop = false;
+  config.internal = false;
+  config.timeOut = 3;
+  config.feed = 4;
+  config.jamLock = false;
+  config.flashHeld = 1;
+  config.holdClap = 0;
+  config.backlight = false;
+  config.plusOne=false;
+  config.magic = CONFIG_MAGIC;
+
+  EEPROM.put(0, config);
+  EEPROM.commit();
+};
+
 /** TBD
  *  load and process configuration from EEPROM
  */
-CONFIG *loadConfig() {
-  return false;
+void loadConfig() {
+  EEPROM.get(0, config);
+  if (config.magic != CONFIG_MAGIC || config.version != CONFIG_VERSION) {
+    // we are not initialized.
+    initConfig();
+  } else {
+    Serial.println("Config OK!");
+  }
 };
 
+// Menu Headers --------
+MD_Menu::value_t vBuf;  // interface buffer for values
+
+const PROGMEM MD_Menu::mnuHeader_t mnuHdr[] =
+{
+  // this doesn't matter as we only have one line of output.
+  // however, if the min/max header numbers are not set right here, the
+  // menu will not advance!
+  { 10, "MD_Menu", 10, 90, 0 },
+};
+
+// Menu Items ----------
+const PROGMEM char listTout[] = "0|15|30|60|120";
+const PROGMEM char listFeed[] = "2|4|6|8";
+const PROGMEM char listFlash[] = "1|2|3|4|5";
+const PROGMEM char listHold[] = "5|15|30|60|120";
+const PROGMEM char listFrames[] = "23|24|25|29|30";
+
+const PROGMEM MD_Menu::mnuItem_t mnuItm[] =
+{
+  // Starting (Root) menu
+  { 10, "1ntG", MD_Menu::MNU_INPUT, 10 },  // Internal generation, defaults to off
+  { 20, "Frt ", MD_Menu::MNU_INPUT, 20 },  // Internal generation, defaults to off
+  { 30, "Drop", MD_Menu::MNU_INPUT, 30 },  // Internal generation, defaults to off
+  { 40, "Tout", MD_Menu::MNU_INPUT, 40 },  // timeout
+  { 50, "Jloc", MD_Menu::MNU_INPUT, 50 },  // jam lock (no run w/o lock)
+  { 60, "Flsh", MD_Menu::MNU_INPUT, 60 },  // flash
+  { 70, "Hold", MD_Menu::MNU_INPUT, 70 },  // hold
+  { 80, "Pls1", MD_Menu::MNU_INPUT, 80 },  // plus one reader mode
+  { 90, "c0de", MD_Menu::MNU_INPUT, 90 },  // back to timecode
+};
+
+// Input Items ---------
+const PROGMEM MD_Menu::mnuInput_t mnuInp[] =
+{
+  { 10, "1ntG", MD_Menu::INP_BOOL, mnuBValueRqst, 0, 0, 0, 0, 0, 0, nullptr },
+  { 20, "Frt ", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listFrames },
+  { 30, "Drop", MD_Menu::INP_BOOL, mnuBValueRqst, 0, 0, 0, 0, 0, 0, nullptr },
+  { 40, "Tout", MD_Menu::INP_LIST, mnuLValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
+  { 50, "jloc", MD_Menu::INP_BOOL, mnuBValueRqst, 0, 0, 0, 0, 0, 0, nullptr },
+  { 60, "Flsh", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listFlash },
+  { 70, "Hold", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listHold },
+  { 80, "Pls1", MD_Menu::INP_BOOL, mnuBValueRqst, 0, 0, 0, 0, 0, 0, nullptr },
+  { 90, "back", MD_Menu::INP_RUN,  mnuExit,       0, 0, 0, 0, 0, 0, nullptr },
+};
+
+MD_Menu::value_t *mnuExit(MD_Menu::mnuId_t id, bool bGet) {
+  state = STATE_TIMECODE;
+};
+
+/* menu handlers */
+MD_Menu::value_t *mnuLValueRqst(MD_Menu::mnuId_t id, bool bGet)
+{
+  // Value request callback for list variables
+  // Note that all use of list operations uses indicies. Not values.
+  MD_Menu::value_t *r = &vBuf;
+  
+  if (bGet) {
+    switch(id) {
+      case 20:
+        vBuf.value = config.frameRate;
+      break;
+      case 40:
+        vBuf.value = config.timeOut;
+      break;
+      case 60:
+        vBuf.value = config.flashHeld;
+      break;
+      case 70:
+        vBuf.value = config.holdClap;
+      break;
+    }
+  } else {
+    switch(id) {
+      case 20:
+        config.frameRate = vBuf.value;
+      break;
+      case 40:
+        config.timeOut = vBuf.value;
+      break;
+      case 60:
+        config.jamLock = vBuf.value;
+      break;
+      case 70:
+        config.holdClap = vBuf.value;
+      break;
+    }
+
+    // save the config.
+    EEPROM.put(0, config);
+    EEPROM.commit();
+  }
+
+  return(r);
+}
+
+MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
+{
+  // Value request callback for boolean variable
+  MD_Menu::value_t *r = &vBuf;
+
+  // are we setting or getting?
+  if (bGet) {
+    switch(id) {
+      case 10:
+        vBuf.value = config.internal;
+      break;
+      case 30:
+        vBuf.value = config.drop;
+      break;
+      case 50:
+        vBuf.value = config.jamLock;
+      break;
+      case 80:
+        vBuf.value = config.plusOne;
+      break;
+    }
+  } else {
+    switch(id) {
+      case 10:
+        config.internal = vBuf.value;
+      break;
+      case 30:
+        config.drop = vBuf.value;
+      break;
+      case 50:
+        config.jamLock = vBuf.value;
+      break;
+      case 80:
+        config.plusOne = vBuf.value;
+      break;
+    }
+  }
+  
+  return(r);
+}
+
+// bring it all together in the global menu object
+MD_Menu M(navigation, display,  // user navigation and display
+  mnuHdr, ARRAY_SIZE(mnuHdr),   // menu header data
+  mnuItm, ARRAY_SIZE(mnuItm),   // menu item data
+  mnuInp, ARRAY_SIZE(mnuInp));  // menu input data
+
+// On the ESP8266, note that these pins are the GPIO number not the physical pin and that
+// even though the device is a 5V device logic works fantastically fine on 3.3v!
+LedControl lc=LedControl(PIN_DISP_DIN, PIN_DISP_CLK, PIN_DISP_CS, 1);
+
 /* LTC Reader */
+// reference: http://www.philrees.co.uk/articles/timecode.htm
 void ICACHE_RAM_ATTR handleTCChange() {
   uint32_t edgeTimeDiff = micros() - uSeconds;            // Get time difference between this and last edge
   uSeconds = micros();                                    // Store time of this edge
@@ -191,7 +327,15 @@ void ICACHE_RAM_ATTR handleTCChange() {
 
     // we have valid timecode so we can reset our timer, which will now jam sync'd to the
     // timecode. Our frame timer should now match their frame timer give or take a few uS
+
+    // there are some discussions here about 'being in frame sync with time code'
+    // which as best I can tell involves starting the timer -after- the sync word
+    // which is nearly exactly what we do here, give or take some code.
+
+    // this device is an analyzer that has -lots- of information about error detection.
+    // https://www.brainstormtime.com/OLD/um_sa1.pdf
     timer1_write(rateDivisors[currentDivisor].cpuTicksPerFrame);
+
     bitSet(tcFlags, tcValid);                             // Signal valid TC
     hasSeenValidTC = true;
   }
@@ -220,7 +364,13 @@ void ICACHE_RAM_ATTR onTimerISR(){
   // in 1mS how many frames went by? 
   currentTime.frames++;
 
-  if (currentTime.frames > frameRate-1) {
+  float maxFrames = frameRate;
+  if (frameRate == 29.97) {
+    // 29.97 time code is 30 fr/sec code with a rate of 29.97.
+    maxFrames = 30;
+  }
+
+  if (currentTime.frames > maxFrames-1) {
     currentTime.frames = 0;
     currentTime.seconds++;
 
@@ -333,12 +483,24 @@ void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonSt
   }
 }
 
+char *removeChar(char *str, char garbage) {
+    char *src, *dst;
+    for (src = dst = str; *src != '\0'; src++) {
+        *dst = *src;
+        if (*dst != garbage) dst++;
+    }
+    *dst = '\0';
+
+    return str;
+}
+
 bool display(MD_Menu::userDisplayAction_t action, char *msg)
 // Output display to a one of 2 line LCD display. 
 // For a one line display, comment out the L0 handling code.
 // The output display line is cleared with spaces before the
 // requested message is shown.
 {
+  char msgCleaned[10];
   switch (action)
   {
    case MD_Menu::DISP_INIT:
@@ -348,9 +510,24 @@ bool display(MD_Menu::userDisplayAction_t action, char *msg)
    case MD_Menu::DISP_CLEAR:
     lc.clearDisplay(0);
    break;
-
+  /*
+  case MD_Menu::DISP_L0:
+    Serial.print("l0: [");
+    Serial.print(msg);
+    Serial.println("]");
+  break;
+  */
   case MD_Menu::DISP_L1:
-    lc.setString(0,7, msg, 0);
+    Serial.print("menu l1: [");
+    Serial.print(msg);
+    Serial.println("]");
+
+    // get rid of a bunch of garbage from the library
+    strcpy(msgCleaned, removeChar(msg, '<'));
+    strcpy(msgCleaned, removeChar(msg, '>'));
+    strcpy(msgCleaned, removeChar(msg, '['));
+    strcpy(msgCleaned, removeChar(msg, ']'));
+    lc.setString(0,7, msgCleaned, 0);
     break;
   }
 
@@ -366,19 +543,16 @@ MD_Menu::userNavAction_t navigation(uint16_t &incDelta)
   // to see if we have anything to do.
   switch(buttonPending) {
     case PIN_BTN_UP:
-      Serial.println("up");
       buttonPending = NO_BUTTONS_PENDING;
       return (MD_Menu::NAV_DEC);
     break;
 
     case PIN_BTN_DOWN:
-      Serial.println("dn");
       buttonPending = NO_BUTTONS_PENDING;
       return (MD_Menu::NAV_INC);
     break;
 
     case PIN_BTN_SELECT:
-      Serial.println("sel");
       buttonPending = NO_BUTTONS_PENDING;
       return (MD_Menu::NAV_SEL);
     break;
@@ -457,6 +631,7 @@ void setup() {
   initTimecode(&currentTime);
 
   // Load Configuration from EEPROM.
+  EEPROM.begin(sizeof(CONFIG));
   loadConfig();
   
   /* LED Setup ---------------------------------- */
@@ -475,11 +650,6 @@ void setup() {
   M.begin();
   M.setMenuWrap(true);
   M.setTimeout(MENU_TIMEOUT);
-}
-
-void showMenu() {
-  lc.clearDisplay(0);
-  lc.setString(0,7, "5ETUP", 0);
 }
 
 void showUserBits() {
