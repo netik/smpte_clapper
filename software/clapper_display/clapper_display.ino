@@ -11,7 +11,6 @@
  *   - SMPTE timecode generation
  *      - should be switched and independent of jam sync.
  *   - Frame Rate Error Alarms (how?!!)
- *   - option to initialize config
  * 
  * http://www.denecke.com/Support/Documents/TS-C_1013.pdf
  * Battery voltage and low battery warning readout
@@ -88,6 +87,10 @@ int state = STATE_HELLO;
 
 CONFIG config;
 
+// On the ESP8266, note that these pins are the GPIO number not the physical pin and that
+// even though the device is a 5V device logic works fantastically fine on 3.3v!
+LedControl lc=LedControl(PIN_DISP_DIN, PIN_DISP_CLK, PIN_DISP_CS, 1);
+
 void initConfig() {
   Serial.println("Config Init.");
 
@@ -122,6 +125,8 @@ void loadConfig() {
   } else {
     Serial.println("Config OK!");
   }
+
+  // TODO: Do everything here to map config values back to other vars.
 };
 
 // Menu Headers --------
@@ -132,7 +137,7 @@ const PROGMEM MD_Menu::mnuHeader_t mnuHdr[] =
   // this doesn't matter as we only have one line of output.
   // however, if the min/max header numbers are not set right here, the
   // menu will not advance!
-  { 10, "MD_Menu", 10, 90, 0 },
+  { 10, "MD_Menu", 10, 100, 0 },
 };
 
 // Menu Items ----------
@@ -154,6 +159,7 @@ const PROGMEM MD_Menu::mnuItem_t mnuItm[] =
   { 70, "Hold", MD_Menu::MNU_INPUT, 70 },  // hold
   { 80, "Pls1", MD_Menu::MNU_INPUT, 80 },  // plus one reader mode
   { 90, "c0de", MD_Menu::MNU_INPUT, 90 },  // back to timecode
+  { 100,"init", MD_Menu::MNU_INPUT, 100 }, // fake boolean to init config
 };
 
 // Input Items ---------
@@ -167,7 +173,8 @@ const PROGMEM MD_Menu::mnuInput_t mnuInp[] =
   { 60, "Flsh", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listFlash },
   { 70, "Hold", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listHold },
   { 80, "Pls1", MD_Menu::INP_BOOL, mnuBValueRqst, 0, 0, 0, 0, 0, 0, nullptr },
-  { 90, "back", MD_Menu::INP_RUN,  mnuExit,       0, 0, 0, 0, 0, 0, nullptr },
+  { 90, "c0de", MD_Menu::INP_RUN,  mnuExit,       0, 0, 0, 0, 0, 0, nullptr },
+  { 100,"init", MD_Menu::INP_BOOL, mnuBValueRqst, 0, 0, 0, 0, 0, 0, nullptr },
 };
 
 MD_Menu::value_t *mnuExit(MD_Menu::mnuId_t id, bool bGet) {
@@ -215,6 +222,8 @@ MD_Menu::value_t *mnuLValueRqst(MD_Menu::mnuId_t id, bool bGet)
     // save the config.
     EEPROM.put(0, config);
     EEPROM.commit();
+
+    loadConfig();
   }
 
   return(r);
@@ -240,6 +249,10 @@ MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
       case 80:
         vBuf.value = config.plusOne;
       break;
+      case 100:
+        // this is a fake boolean that always returns false.
+        vBuf.value = false;
+      break;
     }
   } else {
     switch(id) {
@@ -255,7 +268,21 @@ MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
       case 80:
         config.plusOne = vBuf.value;
       break;
+      case 100:
+        if (vBuf.value == true) {
+          lc.clearDisplay(0);
+          lc.setString(0,7, "-RE5ET-", 0);
+          delay(1000);
+          initConfig();
+        }
+      break;
     }
+
+    // save the config.
+    EEPROM.put(0, config);
+    EEPROM.commit();
+
+    loadConfig();
   }
   
   return(r);
@@ -267,9 +294,6 @@ MD_Menu M(navigation, display,  // user navigation and display
   mnuItm, ARRAY_SIZE(mnuItm),   // menu item data
   mnuInp, ARRAY_SIZE(mnuInp));  // menu input data
 
-// On the ESP8266, note that these pins are the GPIO number not the physical pin and that
-// even though the device is a 5V device logic works fantastically fine on 3.3v!
-LedControl lc=LedControl(PIN_DISP_DIN, PIN_DISP_CLK, PIN_DISP_CS, 1);
 
 /* LTC Reader */
 // reference: http://www.philrees.co.uk/articles/timecode.htm
