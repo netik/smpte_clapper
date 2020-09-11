@@ -1,3 +1,12 @@
+
+Install Libraries
+
+You need:
+
+
+Build
+
+
 1. You need arduino-cli, so run this command (ew):
 
    curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
@@ -13,3 +22,4 @@
 esp8266:esp8266:d1
 
 4. Type make
+

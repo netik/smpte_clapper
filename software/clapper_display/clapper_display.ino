@@ -11,6 +11,7 @@
  *   - SMPTE timecode generation
  *      - should be switched and independent of jam sync.
  *   - Frame Rate Error Alarms (how?!!)
+ *   - Log last 16 claps
  * 
  * http://www.denecke.com/Support/Documents/TS-C_1013.pdf
  * Battery voltage and low battery warning readout
@@ -31,6 +32,8 @@
 #include <MD_UISwitch.h>
 #include <MD_Menu.h>
 #include <Ticker.h>
+#include <ESP8266WiFi.h>
+
 #include "LedControl.h"
 #include "slate.h"
 #include "menu.h"
@@ -69,7 +72,6 @@ typedef struct configuration {
 } CONFIG;
 
 /* Globals - System State */
-bool  inDropMode = false;
 float frameRate = 30;
 int currentDivisor = getDivisorForRate(frameRate);
 
@@ -94,7 +96,7 @@ LedControl lc=LedControl(PIN_DISP_DIN, PIN_DISP_CLK, PIN_DISP_CS, 1);
 void initConfig() {
   Serial.println("Config Init.");
 
-  config.version = 2;
+  config.version = CONFIG_VERSION;
   config.displayBrightness = 5;
 
   // user settable
@@ -119,7 +121,11 @@ void initConfig() {
  */
 void loadConfig() {
   EEPROM.get(0, config);
+
   if (config.magic != CONFIG_MAGIC || config.version != CONFIG_VERSION) {
+    if (config.magic != CONFIG_MAGIC) { Serial.println("bad magic");}
+    if (config.version != CONFIG_VERSION) {Serial.println("version changed - init config");}
+
     // we are not initialized.
     initConfig();
   } else {
@@ -142,17 +148,26 @@ const PROGMEM MD_Menu::mnuHeader_t mnuHdr[] =
 
 // Menu Items ----------
 const PROGMEM char listTout[] = "0|15|30|60|120";
+const PROGMEM int  toutToVal[] = { 0,15,30,60,120 };
+
 const PROGMEM char listFeed[] = "2|4|6|8";
+const PROGMEM char feedToVal[] = { 2,4,6,8 };
+
 const PROGMEM char listFlash[] = "1|2|3|4|5";
+const PROGMEM char flashToVal[] = { 1,2,3,4,5 };
+
 const PROGMEM char listHold[] = "5|15|30|60|120";
+const PROGMEM char flashToHold[] = { 5,10,60,120 };
+
 const PROGMEM char listFrames[] = "23|24|25|29|30";
+const PROGMEM float framesToVal[] = { 23.97, 24, 25, 29.97, 30 };
 
 const PROGMEM MD_Menu::mnuItem_t mnuItm[] =
 {
   // Starting (Root) menu
   { 10, "1ntG", MD_Menu::MNU_INPUT, 10 },  // Internal generation, defaults to off
-  { 20, "Frt ", MD_Menu::MNU_INPUT, 20 },  // Internal generation, defaults to off
-  { 30, "Drop", MD_Menu::MNU_INPUT, 30 },  // Internal generation, defaults to off
+  { 20, "Frt ", MD_Menu::MNU_INPUT, 20 },  // Frame Rate Selection
+  { 30, "Drop", MD_Menu::MNU_INPUT, 30 },  // Drop or non Drop?
   { 40, "Tout", MD_Menu::MNU_INPUT, 40 },  // timeout
   { 50, "jloc", MD_Menu::MNU_INPUT, 50 },  // jam lock (no run w/o lock)
   { 60, "Flsh", MD_Menu::MNU_INPUT, 60 },  // flash
@@ -403,7 +418,7 @@ void ICACHE_RAM_ATTR onTimerISR(){
     //
     // see: http://dougkerr.net/Pumpkin/articles/SMPTE-29.97DF.pdf
 
-    if (inDropMode) { 
+    if (config.drop) { 
       if (currentTime.seconds > 59) { 
         // we're going into the next minute. 
         if ((currentTime.minutes + 1) % 10 != 0) { 
@@ -470,7 +485,7 @@ void showFrameRate() {
   lc.setDigit(0,3,TENS(frameRate),false);
   lc.setDigit(0,2,ONES(frameRate),false);
 
-  if (inDropMode) {
+  if (config.drop) {
     lc.setChar(0,0,'d',false);
   }
 }
@@ -646,12 +661,19 @@ void setupButtonsandPins() {
   pinMode(PIN_TC_OUT, OUTPUT);
 }
 
+void setupWiFi() { 
+  Serial.println("Turning WiFi Off");
+  WiFi.mode(WIFI_OFF);    //This also works
+}
+
 void setup() {
   // Start serial
   Serial.begin(115200);
   delay(1000); // wait for serial to settle
   Serial.println("");
-
+  
+  // kill WiFi
+  setupWiFi();
   initTimecode(&currentTime);
 
   // Load Configuration from EEPROM.
