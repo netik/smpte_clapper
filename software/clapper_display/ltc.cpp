@@ -32,7 +32,7 @@ const DIVISOR rateDivisors[] = {
   { 25,     0.04,         3200000, false },
   { 29.97,  0.0333667,    2669336, true },
   { 30,     0.033333333,  2666667, true },
-  { NULL,  NULL, NULL }
+  { NULL,  NULL, NULL, NULL }
 };
 
 void initTimecode(TIMECODE *tc) {
@@ -41,17 +41,18 @@ void initTimecode(TIMECODE *tc) {
   memset(tc->userBits, 0, sizeof(tc->userBits));
 }
 
-int getDivisorForRate(float rate) {
+uint32_t getDivisorForRate(float rate) {
   int x = 0;
   while (rateDivisors[x].frameRate != rate && rateDivisors[x].frameRate != NULL) { 
     x++;
   }
 
   if (rateDivisors[x].frameRate == NULL) { 
-    return 0; 
+    // end reached
+    return 0;
   }
 
-  return x;
+  return rateDivisors[x].cpuTicksPerFrame;
 }
 
 // todo - timecode math lib?

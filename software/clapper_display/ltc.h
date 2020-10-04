@@ -45,13 +45,13 @@ enum flagBits {
 typedef struct divisor {
   float frameRate;                // displayed frame rate
   float secPerFrame;              // seconds per frame as float
-  unsigned long cpuTicksPerFrame; // cpu ticks (1uS) per frame
+  uint32_t cpuTicksPerFrame; // cpu ticks (1uS) per frame
   bool canDropFrames;             // if user can select drop frame mode
 } DIVISOR;
 
 /* prototypes */
 extern void initTimecode(TIMECODE *);
-extern int getDivisorForRate(float);
+extern uint32_t getDivisorForRate(float);
 extern const DIVISOR rateDivisors[];
 
 #endif // __LTC_H__

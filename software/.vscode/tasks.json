@@ -21,7 +21,7 @@
         {
             "label": "flash binary",
             "type": "shell",
-            "command": "make program",
+            "command": "make upload",
             "group": "build",
             "isBackground": false,
             "presentation": {

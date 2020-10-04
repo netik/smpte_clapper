@@ -3,11 +3,20 @@
  * J. Adams <jna@retina.net> 
  * 9/2020
  * 
- * An open source SMPTE clapper board, similar to commercial solutions.
+ * An open soe SMPTE clapper board, similar to commercial solutions.
  * Reads, writes, and displays SMPTE time code.
  * 
  * TODO:
  *   - Test LTC reading for 30fps drop-frame, unsure on spec.
+ *   - config: make framerates work
+ *   - config: make timeout work when clapper open
+ *   - config: feed Alarm
+ *   - config: jamLock - done
+ *   - config: flashHeld
+ *   - config: holdClap
+ *   - config: blacklight
+ *   - config: plusOne reader
+ * 
  *   - SMPTE timecode generation
  *      - should be switched and independent of jam sync.
  *   - Frame Rate Error Alarms (how?!!)
@@ -40,8 +49,8 @@
 #include "ltc.h"
 
 #include <EEPROM.h>
-#define CONFIG_VERSION 1
-#define CONFIG_MAGIC 0x110aded
+#define CONFIG_VERSION 2
+#define CONFIG_MAGIC 0x110ade 
 
 #include <AceButton.h>
 using namespace ace_button;
@@ -58,7 +67,8 @@ typedef struct configuration {
   // limit 512 bytes
   int version;
   int displayBrightness;
-  float frameRate;
+  // framerate represented based on config options, not actual rate.
+  int frameRate; 
   bool drop;
   bool internal;
   int timeOut;
@@ -73,7 +83,7 @@ typedef struct configuration {
 
 /* Globals - System State */
 float frameRate = 30;
-int currentDivisor = getDivisorForRate(frameRate);
+uint32_t currentDivisor;
 
 /* LTC Reader globals */
 const word sync = 0xBFFC;        // Sync word to expect when running tape forward
@@ -92,48 +102,6 @@ CONFIG config;
 // On the ESP8266, note that these pins are the GPIO number not the physical pin and that
 // even though the device is a 5V device logic works fantastically fine on 3.3v!
 LedControl lc=LedControl(PIN_DISP_DIN, PIN_DISP_CLK, PIN_DISP_CS, 1);
-
-void initConfig() {
-  Serial.println("Config Init.");
-
-  config.version = CONFIG_VERSION;
-  config.displayBrightness = 5;
-
-  // user settable
-  config.frameRate = 4;
-  config.drop = false;
-  config.internal = false;
-  config.timeOut = 3;
-  config.feed = 4;
-  config.jamLock = false;
-  config.flashHeld = 1;
-  config.holdClap = 0;
-  config.backlight = false;
-  config.plusOne=false;
-  config.magic = CONFIG_MAGIC;
-
-  EEPROM.put(0, config);
-  EEPROM.commit();
-};
-
-/** TBD
- *  load and process configuration from EEPROM
- */
-void loadConfig() {
-  EEPROM.get(0, config);
-
-  if (config.magic != CONFIG_MAGIC || config.version != CONFIG_VERSION) {
-    if (config.magic != CONFIG_MAGIC) { Serial.println("bad magic");}
-    if (config.version != CONFIG_VERSION) {Serial.println("version changed - init config");}
-
-    // we are not initialized.
-    initConfig();
-  } else {
-    Serial.println("Config OK!");
-  }
-
-  // TODO: Do everything here to map config values back to other vars.
-};
 
 // Menu Headers --------
 MD_Menu::value_t vBuf;  // interface buffer for values
@@ -162,38 +130,70 @@ const PROGMEM char flashToHold[] = { 5,10,60,120 };
 const PROGMEM char listFrames[] = "23|24|25|29|30";
 const PROGMEM float framesToVal[] = { 23.97, 24, 25, 29.97, 30 };
 
-const PROGMEM MD_Menu::mnuItem_t mnuItm[] =
-{
-  // Starting (Root) menu
-  { 10, "1ntG", MD_Menu::MNU_INPUT, 10 },  // Internal generation, defaults to off
-  { 20, "Frt ", MD_Menu::MNU_INPUT, 20 },  // Frame Rate Selection
-  { 30, "Drop", MD_Menu::MNU_INPUT, 30 },  // Drop or non Drop?
-  { 40, "Tout", MD_Menu::MNU_INPUT, 40 },  // timeout
-  { 50, "jloc", MD_Menu::MNU_INPUT, 50 },  // jam lock (no run w/o lock)
-  { 60, "Flsh", MD_Menu::MNU_INPUT, 60 },  // flash
-  { 70, "Hold", MD_Menu::MNU_INPUT, 70 },  // hold
-  { 80, "Pls1", MD_Menu::MNU_INPUT, 80 },  // plus one reader mode
-  { 90, "c0de", MD_Menu::MNU_INPUT, 90 },  // back to timecode
-  { 100,"init", MD_Menu::MNU_INPUT, 100 }, // fake boolean to init config
+void initConfig() {
+  Serial.println("Config Init.");
+
+  config.version = CONFIG_VERSION;
+  config.displayBrightness = 5;
+
+  // user settable
+  config.frameRate = 4;
+  config.drop = false;
+  config.internal = false;
+  config.timeOut = 3;
+  config.feed = 4;
+  config.jamLock = false;
+  config.flashHeld = 1;
+  config.holdClap = 0;
+  config.backlight = false;
+  config.plusOne=false;
+  config.magic = CONFIG_MAGIC;
+
+  EEPROM.put(0, config);
+  EEPROM.commit();
 };
 
-// Input Items ---------
-const PROGMEM MD_Menu::mnuInput_t mnuInp[] =
-{
-  { 10, "1ntG", MD_Menu::INP_BOOL, mnuBValueRqst, 0, 0, 0, 0, 0, 0, nullptr },
-  { 20, "Frt ", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listFrames },
-  { 30, "Drop", MD_Menu::INP_BOOL, mnuBValueRqst, 0, 0, 0, 0, 0, 0, nullptr },
-  { 40, "Tout", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listTout },
-  { 50, "jloc", MD_Menu::INP_BOOL, mnuBValueRqst, 0, 0, 0, 0, 0, 0, nullptr },
-  { 60, "Flsh", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listFlash },
-  { 70, "Hold", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listHold },
-  { 80, "Pls1", MD_Menu::INP_BOOL, mnuBValueRqst, 0, 0, 0, 0, 0, 0, nullptr },
-  { 90, "c0de", MD_Menu::INP_RUN,  mnuExit,       0, 0, 0, 0, 0, 0, nullptr },
-  { 100,"init", MD_Menu::INP_BOOL, mnuBValueRqst, 0, 0, 0, 0, 0, 0, nullptr },
+void unpackConfig() {
+  // take values from the saved configuration and set appropriate globals.
+  frameRate = framesToVal[config.frameRate];
+  currentDivisor = getDivisorForRate(frameRate);
+  if (currentDivisor == 0) {
+    Serial.println('Invalid rate divisor - system will halt.');
+  }
+}
+
+/** TBD
+ *  load and process configuration from EEPROM
+ */
+void loadConfig() {
+  EEPROM.get(0, config);
+
+  if (config.magic != CONFIG_MAGIC || config.version != CONFIG_VERSION) {
+    if (config.magic != CONFIG_MAGIC) { Serial.println("bad magic");}
+    if (config.version != CONFIG_VERSION) { Serial.println("version changed - init config"); }
+
+    // we are not initialized.
+    initConfig();
+  } else {
+    Serial.print("Config OK, version ");
+    Serial.println(config.version);
+  }
+
 };
 
 MD_Menu::value_t *mnuExit(MD_Menu::mnuId_t id, bool bGet) {
   state = STATE_TIMECODE;
+};
+
+MD_Menu::value_t *mnuSave(MD_Menu::mnuId_t id, bool bGet) {
+  // apparently it isn't possible to run timers while saving.
+  timer1_detachInterrupt();
+  timer1_disable();
+
+  EEPROM.put(0, config);
+  EEPROM.commit();
+  
+  setupTimer();
 };
 
 /* menu handlers */
@@ -227,7 +227,7 @@ MD_Menu::value_t *mnuLValueRqst(MD_Menu::mnuId_t id, bool bGet)
         config.timeOut = vBuf.value;
       break;
       case 60:
-        config.jamLock = vBuf.value;
+        config.flashHeld = vBuf.value;
       break;
       case 70:
         config.holdClap = vBuf.value;
@@ -235,10 +235,9 @@ MD_Menu::value_t *mnuLValueRqst(MD_Menu::mnuId_t id, bool bGet)
     }
 
     // save the config.
-    EEPROM.put(0, config);
-    EEPROM.commit();
+    //EEPROM.put(0, config);
+    //EEPROM.commit();
 
-    loadConfig();
   }
 
   return(r);
@@ -279,6 +278,8 @@ MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
       break;
       case 50:
         config.jamLock = vBuf.value;
+        Serial.print(F("\nBoolean changed to "));
+        Serial.print(vBuf.value);
       break;
       case 80:
         config.plusOne = vBuf.value;
@@ -289,19 +290,46 @@ MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
           lc.setString(0,7, "-RE5ET-", 0);
           delay(1000);
           initConfig();
+          unpackConfig();
         }
       break;
     }
 
-    // save the config.
-    EEPROM.put(0, config);
-    EEPROM.commit();
-
-    loadConfig();
   }
   
   return(r);
 }
+
+const PROGMEM MD_Menu::mnuItem_t mnuItm[] =
+{
+  // Starting (Root) menu
+  { 10, "1ntG", MD_Menu::MNU_INPUT, 10 },  // Internal generation, defaults to off
+  { 20, "Frt ", MD_Menu::MNU_INPUT, 20 },  // Frame Rate Selection
+  { 30, "Drop", MD_Menu::MNU_INPUT, 30 },  // Drop or non Drop?
+  { 40, "Tout", MD_Menu::MNU_INPUT, 40 },  // timeout
+  { 50, "jloc", MD_Menu::MNU_INPUT, 50 },  // jam lock (no run w/o lock)
+  { 60, "Flsh", MD_Menu::MNU_INPUT, 60 },  // flash
+  { 70, "Hold", MD_Menu::MNU_INPUT, 70 },  // hold
+  { 80, "Pls1", MD_Menu::MNU_INPUT, 80 },  // plus one reader mode
+  { 90, "c0de", MD_Menu::MNU_INPUT, 90 },  // back to timecode
+  { 100,"init", MD_Menu::MNU_INPUT, 100 }, // fake boolean to init config
+};
+
+// Input Items ---------
+const PROGMEM MD_Menu::mnuInput_t mnuInp[] =
+{
+  { 10, "1ntG", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
+  { 20, "Frt ", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listFrames },
+  { 30, "Drop", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
+  { 40, "Tout", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listTout },
+  { 50, "jloc", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
+  { 60, "Flsh", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listFlash },
+  { 70, "Hold", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listHold },
+  { 80, "Pls1", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
+  { 90, "c0de", MD_Menu::INP_RUN,  mnuExit,       0, 0, 0, 0, 0, 0, nullptr },
+  { 95, "save", MD_Menu::INP_RUN,  mnuSave,       0, 0, 0, 0, 0, 0, nullptr },
+  { 100,"init", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
+};
 
 // bring it all together in the global menu object
 MD_Menu M(navigation, display,  // user navigation and display
@@ -373,7 +401,7 @@ void ICACHE_RAM_ATTR handleTCChange() {
 
     // this device is an analyzer that has -lots- of information about error detection.
     // https://www.brainstormtime.com/OLD/um_sa1.pdf
-    timer1_write(rateDivisors[currentDivisor].cpuTicksPerFrame);
+    timer1_write(currentDivisor);
 
     bitSet(tcFlags, tcValid);                             // Signal valid TC
     hasSeenValidTC = true;
@@ -452,32 +480,38 @@ void ICACHE_RAM_ATTR onTimerISR(){
  * @params {Integer} val number of milliseconds
  **/ 
 void displayCurrentTime(TIMECODE *tc) {
-    // setDigit: addr, digit, value, decimal point.
+  if (!hasSeenValidTC && config.jamLock) {
+    lc.clearDisplay(0);
+    lc.setString(0,7, "-loc'd-", 0);
+    digitalWrite(LED_BUILTIN, true);
+  }
 
-    // Hours
-    lc.setDigit(0,7,TENS(tc->hours),false);
-    lc.setDigit(0,6,ONES(tc->hours),true);
+  // setDigit: addr, digit, value, decimal point.
 
-    // Minutes    
-    lc.setDigit(0,5,TENS(tc->minutes),false);
-    lc.setDigit(0,4,ONES(tc->minutes),true);
+  // Hours
+  lc.setDigit(0,7,TENS(tc->hours),false);
+  lc.setDigit(0,6,ONES(tc->hours),true);
 
-    // seconds
-    lc.setDigit(0,3,TENS(tc->seconds),false);
-    lc.setDigit(0,2,ONES(tc->seconds),true); // seems to set decimal point fine. 
+  // Minutes    
+  lc.setDigit(0,5,TENS(tc->minutes),false);
+  lc.setDigit(0,4,ONES(tc->minutes),true);
 
-    // frames
-    lc.setDigit(0,1,TENS(tc->frames),false);
-    lc.setDigit(0,0,ONES(tc->frames),false);
+  // seconds
+  lc.setDigit(0,3,TENS(tc->seconds),false);
+  lc.setDigit(0,2,ONES(tc->seconds),true); // seems to set decimal point fine. 
 
-    // Wink the LED once a second. (it appears to be active low?)
-    // We try hard here not to write if we don't have to.
+  // frames
+  lc.setDigit(0,1,TENS(tc->frames),false);
+  lc.setDigit(0,0,ONES(tc->frames),false);
 
-    if (tc->frames < (frameRate/2)) { 
-      digitalWrite(LED_BUILTIN, false);
-    } else {
-      digitalWrite(LED_BUILTIN, true);
-    }
+  // Wink the LED once a second. (it appears to be active low?)
+  // We try hard here not to write if we don't have to.
+
+  if (tc->frames < (frameRate/2)) { 
+    digitalWrite(LED_BUILTIN, false);
+  } else {
+    digitalWrite(LED_BUILTIN, true);
+  }
 }
 
 void showFrameRate() {
@@ -619,7 +653,7 @@ void setupTimer() {
    * Afaik the timers count down to zero and fire the interrupt at zero. 
    * timer1_write resets this countdown.
    */
-  timer1_write(rateDivisors[currentDivisor].cpuTicksPerFrame);
+  timer1_write(currentDivisor);
 }
 
 void setupLED() { 
@@ -663,7 +697,7 @@ void setupButtonsandPins() {
 
 void setupWiFi() { 
   Serial.println("Turning WiFi Off");
-  WiFi.mode(WIFI_OFF);    //This also works
+ // WiFi.mode(WIFI_OFF);    //This also works
 }
 
 void setup() {
@@ -679,18 +713,29 @@ void setup() {
   // Load Configuration from EEPROM.
   EEPROM.begin(sizeof(CONFIG));
   loadConfig();
+
+  Serial.println("Start unpack.");
   
+  unpackConfig();
+
+  Serial.println("Config unpack ok.");
   /* LED Setup ---------------------------------- */
   setupLED();
+  Serial.println("LED setup ok.");
 
   /* Master Clock ------------------------------- */
+  Serial.print("Timer start with divisor ");
+  Serial.println(currentDivisor);
   setupTimer();
+  Serial.println("Timer OK.");
 
   /* Buttons and Blinky ------------------------- */
   setupButtonsandPins();
+  Serial.println("Buttons OK.");
 
   /* Setup the interrupt on TC_IN for LTC reading */
   attachInterrupt(digitalPinToInterrupt(PIN_TC_IN), handleTCChange, CHANGE);
+  Serial.println("Start Interrupts.");
 
   /* menu */
   M.begin();
@@ -791,7 +836,7 @@ void loop() {
       lc.setString(0,7,"FREECODE", 0);
       delay(1000);
       lc.clearDisplay(0);
-      lc.setString(0,7,"Ver  1.0", 0);
+      lc.setString(0,7,"bld  1.0", 0);
       delay(500);
       lc.clearDisplay(0);
       lc.setString(0,7,"FP5", 0);

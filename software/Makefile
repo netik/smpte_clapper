@@ -5,7 +5,7 @@ ARDUINO_CLI = arduino-cli
 BOARD_TYPE ?= esp8266:esp8266:d1
 
 # Default port to upload to
-SERIAL_PORT ?= /dev/tty.usbserial-210
+SERIAL_PORT ?= /dev/tty.usbserial-230
 
 SKETCH=clapper_display
 
@@ -25,10 +25,10 @@ endif
 
 all: smpte_clapper
 
-smpte_clapper: 
+smpte_clapper: $(SKETCH)/$(SKETCH).ino
 	$(ARDUINO_CLI) compile $(VERBOSE) --build-path='$(BUILD_PATH)' --build-cache-path='$(BUILD_PATH)' -b $(BOARD_TYPE) $(SKETCH)
 
-upload:
+upload: smpte_clapper
 	$(ARDUINO_CLI) upload $(VERBOSE) -p $(SERIAL_PORT) --fqbn $(BOARD_TYPE) $(SKETCH)
 
 clean:
