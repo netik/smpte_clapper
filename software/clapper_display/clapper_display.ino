@@ -14,15 +14,16 @@
  *   - config: jamLock - done
  *   - config: flashHeld - done
  *   - config: holdClap - done
- *   - config: blacklight - not cuppoerted
+ *   - config: backlight - not supported
  *   - config: plusOne reader
- *   - config: brightness level 
+ *   - config: brightness level - done
  * 
  *   - SMPTE timecode generation
  *      - should be switched and independent of jam sync.
  *   - Frame Rate Error Alarms (how?!!)
  *   - auto frame lock - how?
- *   - Log last 16 claps
+ *   - Log last 16 claps - done
+ *   - Play back last 16 claps - done
  * 
  * http://www.denecke.com/Support/Documents/TS-C_1013.pdf
  * Battery voltage and low battery warning readout
@@ -54,18 +55,18 @@
 #include <EEPROM.h>
 #define CONFIG_VERSION 3
 #define CONFIG_MAGIC 0x110ade 
+#define MAX_CLAPS 16
 
 #include <AceButton.h>
 using namespace ace_button;
 
+/* Globals  ------------------ */
 /* button defines */
 AceButton buttonUp;
 AceButton buttonDown;
 AceButton buttonSelect;
 AceButton buttonClapper;
 int buttonPending = NO_BUTTONS_PENDING;
-
-/* Globals - System State */
 float frameRate = 30;
 uint32_t currentDivisor;
 
@@ -81,8 +82,8 @@ bool hasSeenValidTC = false;     // if we have ever gotten valid time code, this
 TIMECODE currentTime;
 
 /* remember these many claps in history */
-#define MAX_CLAPS 10
 TIMECODE clapHistory[MAX_CLAPS];
+int historyPosition = MAX_CLAPS - 1;
 
 /* initial state and config */
 int state = STATE_HELLO;
@@ -124,6 +125,12 @@ const char flashToHold[] = { 0, 5,15,30,60,120 };
 /* frame rate */
 const PROGMEM char listFrames[] = "23|24|25|29|30";
 const float framesToVal[] = { 23.97, 24, 25, 29.97, 30 };
+
+/* END Globals  ------------------ */
+
+/* prototypes */
+
+void setupTimer();
 
 void initConfig() {
   Serial.println("Config Init.");
@@ -576,6 +583,35 @@ void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonSt
               state = STATE_MENU;
               M.runMenu(true);
               break;
+            case PIN_BTN_UP:
+              Serial.println("Enter History");
+              state = STATE_HISTORY;
+              historyPosition = MAX_CLAPS - 1;
+              showHistoryPosition();
+              break;
+          }
+        break;
+        case STATE_HISTORY:
+          switch(pin) { 
+            case PIN_BTN_UP:
+              Serial.println("History-");
+              historyPosition--;
+              if (historyPosition < 0) {
+                historyPosition = MAX_CLAPS-1;
+              }
+              showHistoryPosition();
+              break;
+            case PIN_BTN_DOWN:
+              Serial.println("History+");
+              historyPosition++;
+              if (historyPosition > MAX_CLAPS-1) {
+                historyPosition = 0;
+              }
+              showHistoryPosition();
+              break;
+            case PIN_BTN_SELECT:
+              state = STATE_TIMECODE;
+              break;
           }
         break;
         case STATE_MENU:
@@ -699,7 +735,6 @@ void setupLED() {
 }
 
 void setupButtonsandPins() {
-
   ButtonConfig* baseConfig = ButtonConfig::getSystemButtonConfig();
   baseConfig->setEventHandler(handleButtonEvent);
   baseConfig->setFeature(ButtonConfig::kFeatureClick);
@@ -799,6 +834,14 @@ void showUserBits() {
   }
 }
 
+void showHistoryPosition() {
+  lc.clearDisplay(0);
+  lc.setString(0,7, "-------", 0x0);
+  lc.setDigit(0,2,TENS(historyPosition+1),false);
+  lc.setDigit(0,1,ONES(historyPosition+1),false);
+  delay(250);
+}
+
 void loop() {
   // check all the buttons for activity.
   buttonUp.check();
@@ -860,7 +903,7 @@ void loop() {
   switch(state) {
     case STATE_HELLO:
       // say hi!
-      Serial.println("\nSlate Started.");
+      Serial.println("Welcome to Freecode!\n");
       lc.setString(0,7,"FREECODE", 0);
       delay(1000);
       lc.clearDisplay(0);
@@ -915,6 +958,9 @@ void loop() {
       } else {
         state = STATE_TIMECODE;
       }
+      break;
+    case STATE_HISTORY:
+      displayTimecode(&clapHistory[historyPosition]);
       break;
   }
   

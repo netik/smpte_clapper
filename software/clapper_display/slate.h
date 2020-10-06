@@ -21,6 +21,7 @@
 #define STATE_TIMECODE  1
 #define STATE_MENU      2
 #define STATE_CLAP      3
+#define STATE_HISTORY   4
 
 /* return the place value for a number */
 #define TENS(n) (floor((n) / 10))
