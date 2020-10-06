@@ -11,19 +11,12 @@
  *   - config: make framerates work and drop/no-drop - done?
  *   - config: timeout
  *   - config: feed Alarm
- *   - config: jamLock - done
- *   - config: flashHeld - done
- *   - config: holdClap - done
- *   - config: backlight - not supported
  *   - config: plusOne reader
- *   - config: brightness level - done
  * 
  *   - SMPTE timecode generation
  *      - should be switched and independent of jam sync.
  *   - Frame Rate Error Alarms (how?!!)
  *   - auto frame lock - how?
- *   - Log last 16 claps - done
- *   - Play back last 16 claps - done
  * 
  * http://www.denecke.com/Support/Documents/TS-C_1013.pdf
  * Battery voltage and low battery warning readout
