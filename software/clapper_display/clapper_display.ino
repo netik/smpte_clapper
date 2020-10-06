@@ -5,13 +5,18 @@
  * 
  * An open soe SMPTE clapper board, similar to commercial solutions.
  * Reads, writes, and displays SMPTE time code.
- * 
- * TODO:
- *   - Test LTC reading for 30fps drop-frame, unsure on spec.
+ *
+ * Remaining: 
+ *   - test timecode locking and maybe build better input circuit
+ *   - design output circuit
+ *     https://masteringelectronicsdesign.com/design-a-unipolar-to-bipolar-converter-for-a-unipolar-voltage-output-dac/
+ *  
  *   - config: timeout
  *   - config: feed Alarm
  *   - config: plusOne reader
- * 
+ *   - timecode: set user bits
+ *   - timecode: set timecode time like a clock
+ *
  *   - SMPTE timecode generation
  *      - should be switched and independent of jam sync.
  * 
