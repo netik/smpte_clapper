@@ -54,7 +54,7 @@
 #include "config.h"
 
 #include <EEPROM.h>
-#define CONFIG_VERSION 3
+#define CONFIG_VERSION 6
 #define CONFIG_MAGIC 0x110ade 
 #define MAX_CLAPS 16
 
@@ -124,8 +124,8 @@ const PROGMEM char listHold[] = "0|5|15|30|60|120";
 const char flashToHold[] = { 0, 5,15,30,60,120 };
 
 /* frame rate */
-const PROGMEM char listFrames[] = "23|24|25|29|30";
-const float framesToVal[] = { 23.97, 24, 25, 29.97, 30 };
+const PROGMEM char listFrames[] = "24|25|30";
+const float framesToVal[] = { 24, 25, 30 };
 
 /* END Globals  ------------------ */
 
@@ -140,13 +140,13 @@ void initConfig() {
   config.displayBrightness = 2;
 
   // user settable
-  config.frameRate = 4;
+  config.frameRate = 2;
   config.drop = false;
   config.internal = false;
   config.timeOut = 3;
   config.feed = 4;
   config.jamLock = false;
-  config.flashHeld = 1;
+  config.flashHeld = 3;
   config.holdClap = 0;
   config.backlight = false;
   config.plusOne=false;
@@ -462,10 +462,6 @@ void ICACHE_RAM_ATTR onTimerISR(){
   currentTime.frames++;
 
   float maxFrames = frameRate;
-  if (frameRate == 29.97) {
-    // 29.97 time code is 30 fr/sec code with a rate of 29.97.
-    maxFrames = 30;
-  }
 
   if (currentTime.frames > maxFrames-1) {
     currentTime.frames = 0;
