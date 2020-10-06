@@ -45,11 +45,11 @@
 #include <MD_Menu.h>
 #include <Ticker.h>
 #include <ESP8266WiFi.h>
-
 #include "LedControl.h"
 #include "slate.h"
 #include "menu.h"
 #include "ltc.h"
+#include "config.h"
 
 #include <EEPROM.h>
 #define CONFIG_VERSION 3
@@ -65,25 +65,6 @@ AceButton buttonSelect;
 AceButton buttonClapper;
 int buttonPending = NO_BUTTONS_PENDING;
 
-/* EEPROM config */
-typedef struct configuration {
-  // limit 512 bytes
-  int version;
-  int displayBrightness;
-  // framerate represented based on config options, not actual rate.
-  int frameRate; 
-  bool drop;
-  bool internal;
-  int timeOut;
-  int feed;
-  bool jamLock;
-  int flashHeld;
-  int holdClap;
-  bool backlight; // future
-  bool plusOne;
-  unsigned int magic; // used for checking if config is init'd
-} CONFIG;
-
 /* Globals - System State */
 float frameRate = 30;
 uint32_t currentDivisor;
@@ -96,10 +77,15 @@ volatile uint8_t tcFlags = 0;    // Various flags used by ISR and main code
 uint32_t uSeconds;               // ISR store of last edge change time
 bool hasSeenValidTC = false;     // if we have ever gotten valid time code, this is true.
 
-/* what are we doing? */
+/* the current time */
 TIMECODE currentTime;
-int state = STATE_HELLO;
 
+/* remember these many claps in history */
+#define MAX_CLAPS 10
+TIMECODE clapHistory[MAX_CLAPS];
+
+/* initial state and config */
+int state = STATE_HELLO;
 CONFIG config;
 
 // On the ESP8266, note that these pins are the GPIO number not the physical pin and that
@@ -426,7 +412,7 @@ void ICACHE_RAM_ATTR handleTCChange() {
     Serial.println("valid tc");
 #endif
 
-    // we have valid timecode so we can reset our timer, which will now jam sync'd to the
+    // we have valid timecode so we can reset our timer, which will now be jam sync'd to the
     // timecode. Our frame timer should now match their frame timer give or take a few uS
 
     // there are some discussions here about 'being in frame sync with time code'
@@ -513,7 +499,7 @@ void ICACHE_RAM_ATTR onTimerISR(){
  * show the current smpte time on the display.
  * @params {Integer} val number of milliseconds
  **/ 
-void displayCurrentTime(TIMECODE *tc) {
+void displayTimecode(TIMECODE *tc) {
   if (!hasSeenValidTC && config.jamLock && !config.internal) {
     lc.setString(0,7, "-loc'd- ", 0);
     digitalWrite(LED_BUILTIN, true);
@@ -558,6 +544,17 @@ void showFrameRate() {
   }
 }
 
+/**
+ * Save the claps in history. Shift them all back one and put the
+ * latest clap in to clapHistory[MAX_CLAPS]
+ */
+void saveClap() {
+  for (int i=1; i < MAX_CLAPS; i++) {
+    memcpy(&clapHistory[i-1], &clapHistory[i], sizeof(TIMECODE));
+  }
+  memcpy(&clapHistory[MAX_CLAPS-1], &currentTime, sizeof(TIMECODE));
+}
+
 void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonState */)
 {
   // generic button handler 
@@ -565,7 +562,6 @@ void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonSt
     case AceButton::kEventPressed:
     case AceButton::kEventRepeatPressed: {  
       uint8_t pin = button->getPin();
-      Serial.println(pin);
 
       switch (state) {
         case STATE_TIMECODE:
@@ -573,6 +569,7 @@ void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonSt
             case PIN_BTN_CLAPPER:
               Serial.println("Clap");
               state = STATE_CLAP;
+              saveClap();
               break;
             case PIN_BTN_SELECT:
               Serial.println("Select");
@@ -618,6 +615,8 @@ bool display(MD_Menu::userDisplayAction_t action, char *msg)
     lc.clearDisplay(0);
    break;
   /*
+  Since we have only one line this doesn't matter. 
+
   case MD_Menu::DISP_L0:
     Serial.print("l0: [");
     Serial.print(msg);
@@ -648,17 +647,17 @@ MD_Menu::userNavAction_t navigation(uint16_t &incDelta)
   switch(buttonPending) {
     case PIN_BTN_UP:
       buttonPending = NO_BUTTONS_PENDING;
-      return (MD_Menu::NAV_DEC);
+      return(MD_Menu::NAV_DEC);
     break;
 
     case PIN_BTN_DOWN:
       buttonPending = NO_BUTTONS_PENDING;
-      return (MD_Menu::NAV_INC);
+      return(MD_Menu::NAV_INC);
     break;
 
     case PIN_BTN_SELECT:
       buttonPending = NO_BUTTONS_PENDING;
-      return (MD_Menu::NAV_SEL);
+      return(MD_Menu::NAV_SEL);
     break;
 
     default:
@@ -735,8 +734,7 @@ void setup() {
   // Start serial
   Serial.begin(115200);
   delay(1000); // wait for serial to settle
-  Serial.println("");
-  
+
   // kill WiFi
   setupWiFi();
   initTimecode(&currentTime);
@@ -746,10 +744,9 @@ void setup() {
   loadConfig();
 
   Serial.println("Start unpack.");
-  
   unpackConfig();
-
   Serial.println("Config unpack ok.");
+
   /* LED Setup ---------------------------------- */
   setupLED();
   Serial.println("LED setup ok.");
@@ -880,11 +877,9 @@ void loop() {
       break;
     case STATE_CLAP:
       // clapper has closed
+      displayTimecode(&clapHistory[MAX_CLAPS-1]);
       if (config.flashHeld > 0) {
         lc.setIntensity(0,8);
-        Serial.println(flashToVal[config.flashHeld]);
-        Serial.println(rateDivisors[config.frameRate].secPerFrame);
-
         delay(flashToVal[config.flashHeld] * 
               rateDivisors[config.frameRate].secPerFrame *
               1000);
@@ -902,7 +897,7 @@ void loop() {
 
       // now if hold is non-zero, we'll hold for a bit
       if (config.holdClap > 0) {
-        displayCurrentTime(&currentTime);
+        displayTimecode(&clapHistory[MAX_CLAPS-1]);
         delay(1000 * flashToHold[config.holdClap]);
       }
 
@@ -911,7 +906,7 @@ void loop() {
       state = STATE_TIMECODE;
       break;
     case STATE_TIMECODE:
-      displayCurrentTime(&currentTime);
+      displayTimecode(&currentTime);
       break;
     case STATE_MENU:
       // handle timeouts. If menu times out we go back to TC
