@@ -32,7 +32,6 @@ typedef struct timecode {
    char userBits[12];
 } TIMECODE;
 
-
 enum flagBits {
   tcValid,        // TC copied to xtc is valid (Used by main loop to determing if a timecode has arrived)
   tcFrameError,   // ISR edge out of timing bounds (only gets reset after next valid TC read)

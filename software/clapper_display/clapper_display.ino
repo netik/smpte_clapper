@@ -5,38 +5,7 @@
  * 
  * An open soe SMPTE clapper board, similar to commercial solutions.
  * Reads, writes, and displays SMPTE time code.
- *
- * Remaining: 
- *   - test timecode locking and maybe build better input circuit
- *   - design output circuit
- *     https://masteringelectronicsdesign.com/design-a-unipolar-to-bipolar-converter-for-a-unipolar-voltage-output-dac/
- *  
- *   - config: timeout
- *   - config: feed Alarm
- *   - config: plusOne reader
- *   - timecode: set user bits
- *   - timecode: set timecode time like a clock
- *
- *   - SMPTE timecode generation
- *      - should be switched and independent of jam sync.
  * 
- *   - Frame Rate Error Alarms (how?!!)
- *   - auto frame lock - how?
- * 
- * http://www.denecke.com/Support/Documents/TS-C_1013.pdf
- * Battery voltage and low battery warning readout
- * 
- * Time Out: Display times out when sticks are left open. 
- * 
- * EL Backlight: Enable/disable in low brightness.
- * Feed Alert: Reminds you when to jam. 
- * Hold Clap Frame: Displays the last time code after the user bits.
- * Jam Lock: Inhibits running time code without jamming.
- * Plus 1 FrameReader: Time code is displayed in real time when in read mode.
- * Flash Frame: Changes intensity to ensure exposure.  (on clap)
- * Scroll back: Push UP button while sticks are closed to display
- * scroll back of previous claps.
- * Scroll back memory is cleared at power off.
  */
 
 #if !defined(ESP8266)
@@ -54,7 +23,7 @@
 #include "config.h"
 
 #include <EEPROM.h>
-#define CONFIG_VERSION 6
+#define CONFIG_VERSION 7
 #define CONFIG_MAGIC 0x110ade 
 #define MAX_CLAPS 16
 
@@ -109,7 +78,7 @@ const PROGMEM MD_Menu::mnuHeader_t mnuHdr[] =
 
 /* when does slate time out */
 const PROGMEM char listTout[] = "0|15|30|60|120";
-const int  toutToVal[] = { 0, 15, 30, 60, 120 };
+const int toutToVal[] = { 0, 15, 30, 60, 120 };
 
 /* amount of time in hours before reminder */
 const PROGMEM char listFeed[] = "0|2|4|6|8";
@@ -124,8 +93,8 @@ const PROGMEM char listHold[] = "0|5|15|30|60|120";
 const char flashToHold[] = { 0, 5,15,30,60,120 };
 
 /* frame rate */
-const PROGMEM char listFrames[] = "24|25|30";
-const float framesToVal[] = { 24, 25, 30 };
+const PROGMEM char listFrames[] = "23|24|25|29|30";
+const float framesToVal[] = { 23.97, 24, 25, 29.97, 30 };
 
 /* END Globals  ------------------ */
 
@@ -140,7 +109,7 @@ void initConfig() {
   config.displayBrightness = 2;
 
   // user settable
-  config.frameRate = 2;
+  config.frameRate = 4;
   config.drop = false;
   config.internal = false;
   config.timeOut = 3;
@@ -331,17 +300,17 @@ const PROGMEM MD_Menu::mnuItem_t mnuItm[] =
 {
   // Starting (Root) menu
   { 5,  "brite", MD_Menu::MNU_INPUT, 5 },   // brightness
-  { 10, "1ntG", MD_Menu::MNU_INPUT, 10 },  // Internal generation, defaults to off
-  { 20, "Frt ", MD_Menu::MNU_INPUT, 20 },  // Frame Rate Selection
-  { 30, "Drop", MD_Menu::MNU_INPUT, 30 },  // Drop or non Drop?
-  { 40, "Tout", MD_Menu::MNU_INPUT, 40 },  // timeout
-  { 50, "jloc", MD_Menu::MNU_INPUT, 50 },  // jam lock (no run w/o lock)
+  { 10, "1ntG", MD_Menu::MNU_INPUT, 10 },   // Internal generation, defaults to off
+  { 20, "Frt ", MD_Menu::MNU_INPUT, 20 },   // Frame Rate Selection
+  { 30, "Drop", MD_Menu::MNU_INPUT, 30 },   // Drop or non Drop?
+  { 40, "Tout", MD_Menu::MNU_INPUT, 40 },   // timeout
+  { 50, "jloc", MD_Menu::MNU_INPUT, 50 },   // jam lock (no run w/o lock)
   { 60, "Flash", MD_Menu::MNU_INPUT, 60 },  // flash
-  { 70, "Hold", MD_Menu::MNU_INPUT, 70 },  // hold
+  { 70, "Hold", MD_Menu::MNU_INPUT, 70 },   // hold
   { 80, "Plus1", MD_Menu::MNU_INPUT, 80 },  // plus one reader mode
-  { 85 ,"init", MD_Menu::MNU_INPUT, 85 }, // fake boolean to init config
-  { 90, "store", MD_Menu::MNU_INPUT, 90 },  // back to timecode
-  { 95, "return", MD_Menu::MNU_INPUT, 95 },  // back to timecode
+  { 85 ,"init", MD_Menu::MNU_INPUT, 85 },   // fake boolean to init config
+  { 90, "store", MD_Menu::MNU_INPUT, 90 },  // save and back to timecode
+  { 95, "return", MD_Menu::MNU_INPUT, 95 }, // back to timecode
 };
 
 // Input Items ---------
@@ -462,30 +431,42 @@ void ICACHE_RAM_ATTR onTimerISR(){
   currentTime.frames++;
 
   float maxFrames = frameRate;
+  if (frameRate == 29.97) {
+    // 29.97 time code is 30 fr/sec code with a rate of 29.97.
+    maxFrames = 29;
+  }
 
-  if (currentTime.frames > maxFrames-1) {
+  if (currentTime.frames > maxFrames) {
     currentTime.frames = 0;
     currentTime.seconds++;
 
-    // when drop frame is enabled, every minute starts at frame 2 instead of
-    // at frame 0, unless the minute is divisible by 10.
-    //
-    // see: http://dougkerr.net/Pumpkin/articles/SMPTE-29.97DF.pdf
-
-    if (config.drop) { 
-      if (currentTime.seconds > 59) { 
-        // we're going into the next minute. 
-        if ((currentTime.minutes + 1) % 10 != 0) { 
-          currentTime.frames = 2;
-        }
-      }
+    /* 
+      If the seconds field is now 00 (that is, we are now in the first second of a
+      minute in time code time), the range of the frames field is 02-29 (that is,
+      the frame numbers 00 and 01 are skipped at the beginning of that
+      second), except that:
+      
+      If the seconds field is now 00, but the minutes field now is evenly
+      divisible by 10 (that includes a value of 00), then the range of the frames
+      field is the normal 00-29 (that is, no frame numbers are skipped at the
+      beginning of that second).
+    */
+    if (currentTime.seconds > 59) { 
+        currentTime.seconds = 0;
+        currentTime.minutes++;
     }
+
+    if (currentTime.seconds == 0) { 
+      currentTime.frames = 2;
+
+      if (currentTime.minutes % 10 == 0 || currentTime.minutes == 0) {
+        currentTime.frames = 0;
+      } 
+    }
+
+
   }
 
-  if (currentTime.seconds > 59) { 
-      currentTime.seconds = 0;
-      currentTime.minutes++;
-  }
 
   if (currentTime.minutes > 59) { 
     currentTime.minutes = 0;
@@ -498,7 +479,6 @@ void ICACHE_RAM_ATTR onTimerISR(){
     currentTime.minutes = 0;
     currentTime.frames = 0;
   }
-
 }
 
 /**
@@ -576,14 +556,13 @@ void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonSt
               Serial.println("Clap");
               state = STATE_CLAP;
               saveClap();
-              break;
+            break;
             case PIN_BTN_SELECT:
-              Serial.println("Select");
               state = STATE_MENU;
               M.runMenu(true);
               break;
             case PIN_BTN_UP:
-              Serial.println("Enter History");
+              dumpHistory();
               state = STATE_HISTORY;
               historyPosition = MAX_CLAPS - 1;
               showHistoryPosition();
@@ -593,7 +572,6 @@ void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonSt
         case STATE_HISTORY:
           switch(pin) { 
             case PIN_BTN_UP:
-              Serial.println("History-");
               historyPosition--;
               if (historyPosition < 0) {
                 historyPosition = MAX_CLAPS-1;
@@ -601,7 +579,6 @@ void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonSt
               showHistoryPosition();
               break;
             case PIN_BTN_DOWN:
-              Serial.println("History+");
               historyPosition++;
               if (historyPosition > MAX_CLAPS-1) {
                 historyPosition = 0;
@@ -839,6 +816,35 @@ void showHistoryPosition() {
   lc.setDigit(0,2,TENS(historyPosition+1),false);
   lc.setDigit(0,1,ONES(historyPosition+1),false);
   delay(250);
+}
+
+char *timecodeToString(TIMECODE *tc) {
+  static char buf[20];
+
+  sprintf(buf, "%02d:%02d:%02d%c%02d",
+    tc->hours, 
+    tc->minutes, 
+    tc->seconds, 
+    config.drop ? ';' : ':', 
+    tc->frames); 
+  return buf;
+}
+
+/**
+ * dumps history to the serial port
+ */
+
+void dumpHistory() {
+  char buf[18];
+
+  Serial.print(frameRate);
+  Serial.print(" fps, ");
+  Serial.println(config.drop ? "Drop" : "Non-Drop");
+
+  for (int i = 0; i < MAX_CLAPS; i++) {
+    sprintf(buf, "%02d %s", i, timecodeToString(&clapHistory[i]));
+    Serial.println(buf);
+  }
 }
 
 void loop() {
