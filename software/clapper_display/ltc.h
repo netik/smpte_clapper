@@ -45,7 +45,7 @@ enum flagBits {
 typedef struct divisor {
   float frameRate;                // displayed frame rate
   float secPerFrame;              // seconds per frame as float
-  uint32_t cpuTicksPerFrame; // cpu ticks (1uS) per frame
+  uint32_t cpuTicksPerFrame;      // cpu ticks (1uS) per frame
   bool canDropFrames;             // if user can select drop frame mode
 } DIVISOR;
 

@@ -8,28 +8,31 @@
  * 
  * TODO:
  *   - Test LTC reading for 30fps drop-frame, unsure on spec.
- *   - config: make framerates work
- *   - config: make timeout work when clapper open
+ *   - config: make framerates work and drop/no-drop - done?
+ *   - config: timeout
  *   - config: feed Alarm
  *   - config: jamLock - done
- *   - config: flashHeld
- *   - config: holdClap
- *   - config: blacklight
+ *   - config: flashHeld - done
+ *   - config: holdClap - done
+ *   - config: blacklight - not cuppoerted
  *   - config: plusOne reader
+ *   - config: brightness level 
  * 
  *   - SMPTE timecode generation
  *      - should be switched and independent of jam sync.
  *   - Frame Rate Error Alarms (how?!!)
+ *   - auto frame lock - how?
  *   - Log last 16 claps
  * 
  * http://www.denecke.com/Support/Documents/TS-C_1013.pdf
  * Battery voltage and low battery warning readout
  * Time Out: Display times out when sticks are left open. 
  * EL Backlight: Enable/disable in low brightness.
- * Feed Alert: Reminds you when to jam. Hold Clap Frame: Displays the last time code after the user bits.
+ * Feed Alert: Reminds you when to jam. 
+ * Hold Clap Frame: Displays the last time code after the user bits.
  * Jam Lock: Inhibits running time code without jamming.
  * Plus 1 FrameReader: Time code is displayed in real time when in read mode.
- * Flash Frame: Changes intensity to ensure exposure. 
+ * Flash Frame: Changes intensity to ensure exposure.  (on clap)
  * Scroll back: Push Set button while sticks are closed to displayscroll back of previous claps.
  *    Scroll back memory is cleared at power off.
  */
@@ -49,7 +52,7 @@
 #include "ltc.h"
 
 #include <EEPROM.h>
-#define CONFIG_VERSION 2
+#define CONFIG_VERSION 3
 #define CONFIG_MAGIC 0x110ade 
 
 #include <AceButton.h>
@@ -111,30 +114,36 @@ const PROGMEM MD_Menu::mnuHeader_t mnuHdr[] =
   // this doesn't matter as we only have one line of output.
   // however, if the min/max header numbers are not set right here, the
   // menu will not advance!
-  { 10, "MD_Menu", 10, 100, 0 },
+  { 5, "MD_Menu", 5, 100, 0 },
 };
 
 // Menu Items ----------
+
+/* when does slate time out */
 const PROGMEM char listTout[] = "0|15|30|60|120";
-const PROGMEM int  toutToVal[] = { 0,15,30,60,120 };
+const int  toutToVal[] = { 0, 15, 30, 60, 120 };
 
-const PROGMEM char listFeed[] = "2|4|6|8";
-const PROGMEM char feedToVal[] = { 2,4,6,8 };
+/* amount of time in hours before reminder */
+const PROGMEM char listFeed[] = "0|2|4|6|8";
+const char feedToVal[] = { 0, 2, 4, 6, 8 };
 
-const PROGMEM char listFlash[] = "1|2|3|4|5";
-const PROGMEM char flashToVal[] = { 1,2,3,4,5 };
+/* if we should flash or not */
+const PROGMEM char listFlash[] = "0|1|2|3|4|5";
+const char flashToVal[] = { 0, 1, 2, 3, 4, 5 };
 
-const PROGMEM char listHold[] = "5|15|30|60|120";
-const PROGMEM char flashToHold[] = { 5,10,60,120 };
+/* how long to hold for */
+const PROGMEM char listHold[] = "0|5|15|30|60|120";
+const char flashToHold[] = { 0, 5,15,30,60,120 };
 
+/* frame rate */
 const PROGMEM char listFrames[] = "23|24|25|29|30";
-const PROGMEM float framesToVal[] = { 23.97, 24, 25, 29.97, 30 };
+const float framesToVal[] = { 23.97, 24, 25, 29.97, 30 };
 
 void initConfig() {
   Serial.println("Config Init.");
 
   config.version = CONFIG_VERSION;
-  config.displayBrightness = 5;
+  config.displayBrightness = 2;
 
   // user settable
   config.frameRate = 4;
@@ -194,6 +203,8 @@ MD_Menu::value_t *mnuSave(MD_Menu::mnuId_t id, bool bGet) {
   EEPROM.commit();
   
   setupTimer();
+
+  state = STATE_TIMECODE;
 };
 
 /* menu handlers */
@@ -243,6 +254,22 @@ MD_Menu::value_t *mnuLValueRqst(MD_Menu::mnuId_t id, bool bGet)
   return(r);
 }
 
+MD_Menu::value_t *mnuIValueRqst(MD_Menu::mnuId_t id, bool bGet)
+// Value request callback for integers variables
+{
+  MD_Menu::value_t *r = &vBuf;
+
+  // right now this is only used by brightness
+  if (bGet) {
+      vBuf.value = config.displayBrightness;
+  } else {
+      config.displayBrightness = vBuf.value;
+      lc.setIntensity(0, config.displayBrightness);
+  }
+
+  return(r);
+}
+
 MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
 {
   // Value request callback for boolean variable
@@ -259,6 +286,10 @@ MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
       break;
       case 50:
         vBuf.value = config.jamLock;
+        // reset hasSeen if this config setting changes.
+        if (vBuf.value == true) { 
+          hasSeenValidTC = false;
+        }
       break;
       case 80:
         vBuf.value = config.plusOne;
@@ -303,31 +334,34 @@ MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
 const PROGMEM MD_Menu::mnuItem_t mnuItm[] =
 {
   // Starting (Root) menu
+  { 5,  "brite", MD_Menu::MNU_INPUT, 5 },   // brightness
   { 10, "1ntG", MD_Menu::MNU_INPUT, 10 },  // Internal generation, defaults to off
   { 20, "Frt ", MD_Menu::MNU_INPUT, 20 },  // Frame Rate Selection
   { 30, "Drop", MD_Menu::MNU_INPUT, 30 },  // Drop or non Drop?
   { 40, "Tout", MD_Menu::MNU_INPUT, 40 },  // timeout
   { 50, "jloc", MD_Menu::MNU_INPUT, 50 },  // jam lock (no run w/o lock)
-  { 60, "Flsh", MD_Menu::MNU_INPUT, 60 },  // flash
+  { 60, "Flash", MD_Menu::MNU_INPUT, 60 },  // flash
   { 70, "Hold", MD_Menu::MNU_INPUT, 70 },  // hold
-  { 80, "Pls1", MD_Menu::MNU_INPUT, 80 },  // plus one reader mode
-  { 90, "c0de", MD_Menu::MNU_INPUT, 90 },  // back to timecode
+  { 80, "Plus1", MD_Menu::MNU_INPUT, 80 },  // plus one reader mode
+  { 90, "store", MD_Menu::MNU_INPUT, 90 },  // back to timecode
+  { 95, "return", MD_Menu::MNU_INPUT, 95 },  // back to timecode
   { 100,"init", MD_Menu::MNU_INPUT, 100 }, // fake boolean to init config
 };
 
 // Input Items ---------
 const PROGMEM MD_Menu::mnuInput_t mnuInp[] =
 {
+  { 5,  "brte", MD_Menu::INP_INT,  mnuIValueRqst, 1, 1, 0, 7, 0, 10, nullptr },
   { 10, "1ntG", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
   { 20, "Frt ", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listFrames },
   { 30, "Drop", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
   { 40, "Tout", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listTout },
   { 50, "jloc", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
-  { 60, "Flsh", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listFlash },
-  { 70, "Hold", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listHold },
+  { 60, "Flsh", MD_Menu::INP_LIST, mnuLValueRqst, 6, 0, 0, 0, 0, 0, listFlash },
+  { 70, "Hold", MD_Menu::INP_LIST, mnuLValueRqst, 6, 0, 0, 0, 0, 0, listHold },
   { 80, "Pls1", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
-  { 90, "c0de", MD_Menu::INP_RUN,  mnuExit,       0, 0, 0, 0, 0, 0, nullptr },
-  { 95, "save", MD_Menu::INP_RUN,  mnuSave,       0, 0, 0, 0, 0, 0, nullptr },
+  { 90, "store", MD_Menu::INP_RUN, mnuSave,       0, 0, 0, 0, 0, 0, nullptr },
+  { 95, "return", MD_Menu::INP_RUN, mnuExit,       0, 0, 0, 0, 0, 0, nullptr },
   { 100,"init", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
 };
 
@@ -441,7 +475,7 @@ void ICACHE_RAM_ATTR onTimerISR(){
     currentTime.frames = 0;
     currentTime.seconds++;
 
-    // when drop frame is enabled, every mimute starts at frame 2 instead of
+    // when drop frame is enabled, every minute starts at frame 2 instead of
     // at frame 0, unless the minute is divisible by 10.
     //
     // see: http://dougkerr.net/Pumpkin/articles/SMPTE-29.97DF.pdf
@@ -480,10 +514,10 @@ void ICACHE_RAM_ATTR onTimerISR(){
  * @params {Integer} val number of milliseconds
  **/ 
 void displayCurrentTime(TIMECODE *tc) {
-  if (!hasSeenValidTC && config.jamLock) {
-    lc.clearDisplay(0);
-    lc.setString(0,7, "-loc'd-", 0);
+  if (!hasSeenValidTC && config.jamLock && !config.internal) {
+    lc.setString(0,7, "-loc'd- ", 0);
     digitalWrite(LED_BUILTIN, true);
+    return;
   }
 
   // setDigit: addr, digit, value, decimal point.
@@ -591,15 +625,12 @@ bool display(MD_Menu::userDisplayAction_t action, char *msg)
   break;
   */
   case MD_Menu::DISP_L1:
-    Serial.print("menu l1: [");
-    Serial.print(msg);
-    Serial.println("]");
-
     // get rid of a bunch of garbage from the library
     strcpy(msgCleaned, removeChar(msg, '<'));
     strcpy(msgCleaned, removeChar(msg, '>'));
     strcpy(msgCleaned, removeChar(msg, '['));
     strcpy(msgCleaned, removeChar(msg, ']'));
+    lc.clearDisplay(0);
     lc.setString(0,7, msgCleaned, 0);
     break;
   }
@@ -663,7 +694,7 @@ void setupLED() {
    */   
   lc.shutdown(0,false);
   /* Set the brightness to a medium values */
-  lc.setIntensity(0,8);
+  lc.setIntensity(0, config.displayBrightness);
   /* and clear the display */
   lc.clearDisplay(0);
 }
@@ -832,7 +863,7 @@ void loop() {
   switch(state) {
     case STATE_HELLO:
       // say hi!
-      Serial.println("\n\n\nSlate Started.");
+      Serial.println("\nSlate Started.");
       lc.setString(0,7,"FREECODE", 0);
       delay(1000);
       lc.clearDisplay(0);
@@ -848,12 +879,33 @@ void loop() {
       Serial.println("Timecode Mode");
       break;
     case STATE_CLAP:
-      // when clapper closes do the thing.
-      // freeze timecode for about four frames.
-      delay(150);
-      // show user bits
+      // clapper has closed
+      if (config.flashHeld > 0) {
+        lc.setIntensity(0,8);
+        Serial.println(flashToVal[config.flashHeld]);
+        Serial.println(rateDivisors[config.frameRate].secPerFrame);
+
+        delay(flashToVal[config.flashHeld] * 
+              rateDivisors[config.frameRate].secPerFrame *
+              1000);
+              
+        lc.setIntensity(0,config.displayBrightness);
+      } else {
+        // we'll hold for three frames 
+        delay(3 * 
+              rateDivisors[config.frameRate].secPerFrame * 
+              1000);
+      }
+      // show user bits for one second. 
       showUserBits();
       delay(1000);
+
+      // now if hold is non-zero, we'll hold for a bit
+      if (config.holdClap > 0) {
+        displayCurrentTime(&currentTime);
+        delay(1000 * flashToHold[config.holdClap]);
+      }
+
       lc.clearDisplay(0);
       delay(1000);
       state = STATE_TIMECODE;

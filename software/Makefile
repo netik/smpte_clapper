@@ -5,7 +5,8 @@ ARDUINO_CLI = arduino-cli
 BOARD_TYPE ?= esp8266:esp8266:d1
 
 # Default port to upload to
-SERIAL_PORT ?= /dev/tty.usbserial-230
+#SERIAL_PORT ?= /dev/tty.usbserial-230
+SERIAL_PORT ?= /dev/cu.usbserial-1420
 
 SKETCH=clapper_display
 
