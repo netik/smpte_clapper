@@ -8,7 +8,6 @@
  * 
  * TODO:
  *   - Test LTC reading for 30fps drop-frame, unsure on spec.
- *   - config: make framerates work and drop/no-drop - done?
  *   - config: timeout
  *   - config: feed Alarm
  *   - config: plusOne reader
