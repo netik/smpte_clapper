@@ -14,20 +14,24 @@
  * 
  *   - SMPTE timecode generation
  *      - should be switched and independent of jam sync.
+ * 
  *   - Frame Rate Error Alarms (how?!!)
  *   - auto frame lock - how?
  * 
  * http://www.denecke.com/Support/Documents/TS-C_1013.pdf
  * Battery voltage and low battery warning readout
+ * 
  * Time Out: Display times out when sticks are left open. 
+ * 
  * EL Backlight: Enable/disable in low brightness.
  * Feed Alert: Reminds you when to jam. 
  * Hold Clap Frame: Displays the last time code after the user bits.
  * Jam Lock: Inhibits running time code without jamming.
  * Plus 1 FrameReader: Time code is displayed in real time when in read mode.
  * Flash Frame: Changes intensity to ensure exposure.  (on clap)
- * Scroll back: Push Set button while sticks are closed to displayscroll back of previous claps.
- *    Scroll back memory is cleared at power off.
+ * Scroll back: Push UP button while sticks are closed to display
+ * scroll back of previous claps.
+ * Scroll back memory is cleared at power off.
  */
 
 #if !defined(ESP8266)
@@ -189,6 +193,8 @@ MD_Menu::value_t *mnuSave(MD_Menu::mnuId_t id, bool bGet) {
   
   setupTimer();
 
+  lc.setString(0,7, "stored.", 0);
+  delay(250);
   state = STATE_TIMECODE;
 };
 
