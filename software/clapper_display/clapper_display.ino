@@ -334,9 +334,9 @@ const PROGMEM MD_Menu::mnuItem_t mnuItm[] =
   { 60, "Flash", MD_Menu::MNU_INPUT, 60 },  // flash
   { 70, "Hold", MD_Menu::MNU_INPUT, 70 },  // hold
   { 80, "Plus1", MD_Menu::MNU_INPUT, 80 },  // plus one reader mode
+  { 85 ,"init", MD_Menu::MNU_INPUT, 85 }, // fake boolean to init config
   { 90, "store", MD_Menu::MNU_INPUT, 90 },  // back to timecode
   { 95, "return", MD_Menu::MNU_INPUT, 95 },  // back to timecode
-  { 100,"init", MD_Menu::MNU_INPUT, 100 }, // fake boolean to init config
 };
 
 // Input Items ---------
@@ -351,9 +351,9 @@ const PROGMEM MD_Menu::mnuInput_t mnuInp[] =
   { 60, "Flsh", MD_Menu::INP_LIST, mnuLValueRqst, 6, 0, 0, 0, 0, 0, listFlash },
   { 70, "Hold", MD_Menu::INP_LIST, mnuLValueRqst, 6, 0, 0, 0, 0, 0, listHold },
   { 80, "Pls1", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
+  { 85, "init", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
   { 90, "store", MD_Menu::INP_RUN, mnuSave,       0, 0, 0, 0, 0, 0, nullptr },
-  { 95, "return", MD_Menu::INP_RUN, mnuExit,       0, 0, 0, 0, 0, 0, nullptr },
-  { 100,"init", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
+  { 95, "return", MD_Menu::INP_RUN, mnuExit,      0, 0, 0, 0, 0, 0, nullptr },
 };
 
 // bring it all together in the global menu object
