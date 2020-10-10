@@ -3,15 +3,18 @@ freecode
 
 This is an open source hardware and software solution that creates a 
 SMPTE LED Time Code Slate, designed to emulate the very expensive 
-commercial slates that exist.
+commercial slates that exist. It's a hobbyist project for indie film
+makers. These slates normally run for $1300 or more. This project can be
+built for around $200. 
 
 It is based around the ESP8266 and can generate and jam sync with other LTC devices.
 
 Features
 ------------
-* 7-segment menu system for easy configuration
+* 7-segment SMPTE display
+* LED menu system for easy configuration with three button control
+* Magnetic hall-effect clapper
 * LED to indicate jam sync
-* Three button menu systetm
 * Time Out: Display times out when sticks are left open. 
 * EL Backlight: Enable/disable in low brightness.
 * Jam Lock: Inhibits running time code without jamming.
@@ -22,26 +25,29 @@ Features
 * Scroll back: Push UP button while sticks are closed to display
 * Scroll back of previous claps.
 * Scroll back memory is cleared at power off.
+* LTC Sync and generation
 
 TODO
 =====
 
-Remaining:
-
+HW:
  * test timecode locking and maybe build better input circuit
  * design output circuit - https://masteringelectronicsdesign.com/design-a-unipolar-to-bipolar-converter-for-a-unipolar-voltage-output-dac/
+ * add voltage divisor and use adc
+ * Battery voltage and low battery warning readout
+
+SW:
+
  * config: timeout -- depends on sticks being closed?
  	* config: feed Alarm
  	* config: plusOne reader
  * timecode: set user bits
  * timecode: set timecode time like a clock
  * SMPTE timecode generation
- 	 * should be switched and independent of jam sync.
  * Frame Rate Error Alarms (how?!!)
  * auto frame lock - how?
  
- * http://www.denecke.com/Support/Documents/TS-C_1013.pdf
- * Battery voltage and low battery warning readout
+Based on http://www.denecke.com/Support/Documents/TS-C_1013.pdf
 
 Set up
 ==============

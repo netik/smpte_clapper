@@ -46,7 +46,7 @@
    RTS and DTR from U2 seem to go into GPIO0, which means it's probably not safe to use.
    (no, turns out that's fine.)
 */
-/* Current wiring is:
+/* Current wiring is:  
 
    ~SELECT (D8) does not need pulldown
    ~UP (D7) needs pull down

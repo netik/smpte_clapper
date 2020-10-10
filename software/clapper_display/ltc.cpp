@@ -25,13 +25,14 @@
 */
 
 const DIVISOR rateDivisors[] = {
-  // rate,  seconds per frame, cpu ticks/frame, can drop frames
-  { 23.976, 0.041708375,  3336670, false },
-  { 24,     0.041666667,  3333333, false }, 
-  { 25,     0.04,         3200000, false },
-  { 29.97,  0.0333667,    2669336, true },
-  { 30,     0.033333333,  2666667, true },
-  { NULL,  NULL, NULL, NULL }
+  // name,  rate,  seconds per frame, cpu ticks/frame, can drop frames
+  { "23",  23.976, 0.041708375,  3336670, false },
+  { "24",  24,     0.041666667,  3333333, false }, 
+  { "25",  25,     0.04,         3200000, false },
+  { "29",  29,     0.0333667,    2669336, true },
+  { "29D", 29,     0.0333667,    2669336, true },
+  { "30",  30,     0.033333333,  2666667, false },
+  { NULL,  NULL,   NULL,         NULL,    NULL }
 };
 
 void initTimecode(TIMECODE *tc) {

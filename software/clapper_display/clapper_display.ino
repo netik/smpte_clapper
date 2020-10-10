@@ -23,7 +23,7 @@
 #include "config.h"
 
 #include <EEPROM.h>
-#define CONFIG_VERSION 7
+#define CONFIG_VERSION 9
 #define CONFIG_MAGIC 0x110ade 
 #define MAX_CLAPS 16
 
@@ -93,8 +93,9 @@ const PROGMEM char listHold[] = "0|5|15|30|60|120";
 const char flashToHold[] = { 0, 5,15,30,60,120 };
 
 /* frame rate */
-const PROGMEM char listFrames[] = "23|24|25|29|30";
-const float framesToVal[] = { 23.97, 24, 25, 29.97, 30 };
+const PROGMEM char listFrames[] = "23|24|25|29|29D|30";
+const float framesToVal[] = { 23.97, 24, 25, 29.97, 29.97, 30 };
+#define DROP_INDEX 4
 
 /* END Globals  ------------------ */
 
@@ -109,8 +110,7 @@ void initConfig() {
   config.displayBrightness = 2;
 
   // user settable
-  config.frameRate = 4;
-  config.drop = false;
+  config.frameRate = 5;
   config.internal = false;
   config.timeOut = 3;
   config.feed = 4;
@@ -129,9 +129,13 @@ void unpackConfig() {
   // take values from the saved configuration and set appropriate globals.
   frameRate = framesToVal[config.frameRate];
   currentDivisor = getDivisorForRate(frameRate);
+
   if (currentDivisor == 0) {
-    Serial.println('Invalid rate divisor - system will halt.');
+    Serial.println("Invalid rate divisor - system will halt.\n");
   }
+  
+  lc.setIntensity(0, config.displayBrightness);
+
 }
 
 /** TBD
@@ -246,9 +250,6 @@ MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
       case 10:
         vBuf.value = config.internal;
       break;
-      case 30:
-        vBuf.value = config.drop;
-      break;
       case 50:
         vBuf.value = config.jamLock;
         // reset hasSeen if this config setting changes.
@@ -268,9 +269,6 @@ MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
     switch(id) {
       case 10:
         config.internal = vBuf.value;
-      break;
-      case 30:
-        config.drop = vBuf.value;
       break;
       case 50:
         config.jamLock = vBuf.value;
@@ -302,7 +300,6 @@ const PROGMEM MD_Menu::mnuItem_t mnuItm[] =
   { 5,  "brite", MD_Menu::MNU_INPUT, 5 },   // brightness
   { 10, "1ntG", MD_Menu::MNU_INPUT, 10 },   // Internal generation, defaults to off
   { 20, "Frt ", MD_Menu::MNU_INPUT, 20 },   // Frame Rate Selection
-  { 30, "Drop", MD_Menu::MNU_INPUT, 30 },   // Drop or non Drop?
   { 40, "Tout", MD_Menu::MNU_INPUT, 40 },   // timeout
   { 50, "jloc", MD_Menu::MNU_INPUT, 50 },   // jam lock (no run w/o lock)
   { 60, "Flash", MD_Menu::MNU_INPUT, 60 },  // flash
@@ -319,7 +316,6 @@ const PROGMEM MD_Menu::mnuInput_t mnuInp[] =
   { 5,  "brte", MD_Menu::INP_INT,  mnuIValueRqst, 1, 1, 0, 7, 0, 10, nullptr },
   { 10, "1ntG", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
   { 20, "Frt ", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listFrames },
-  { 30, "Drop", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
   { 40, "Tout", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listTout },
   { 50, "jloc", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
   { 60, "Flsh", MD_Menu::INP_LIST, mnuLValueRqst, 6, 0, 0, 0, 0, 0, listFlash },
@@ -424,11 +420,15 @@ void shiftRight(uint8_t theArray[], uint8_t theArraySize){
 }
 
 /* ISR for timer tick */
-void ICACHE_RAM_ATTR onTimerISR(){
+/* TODO: Convert the increment to a function so that it can be reused for plusOne */
+TIMECODE *getNextTimecode(TIMECODE tc) {
   // implement a frame clock on a 1000uS / 1mS / .001 second interrupt
   // we don't have incoming sync, let's do it ourselves. 
   // in 1mS how many frames went by? 
-  currentTime.frames++;
+  static TIMECODE retTime;
+  memcpy(&retTime, &tc, sizeof(TIMECODE));
+  
+  retTime.frames++;
 
   float maxFrames = frameRate;
   if (frameRate == 29.97) {
@@ -436,9 +436,9 @@ void ICACHE_RAM_ATTR onTimerISR(){
     maxFrames = 29;
   }
 
-  if (currentTime.frames > maxFrames) {
-    currentTime.frames = 0;
-    currentTime.seconds++;
+  if (retTime.frames > maxFrames) {
+    retTime.frames = 0;
+    retTime.seconds++;
 
     /* 
       If the seconds field is now 00 (that is, we are now in the first second of a
@@ -451,34 +451,37 @@ void ICACHE_RAM_ATTR onTimerISR(){
       field is the normal 00-29 (that is, no frame numbers are skipped at the
       beginning of that second).
     */
-    if (currentTime.seconds > 59) { 
-        currentTime.seconds = 0;
-        currentTime.minutes++;
+    if (retTime.seconds > 59) { 
+        retTime.seconds = 0;
+        retTime.minutes++;
     }
 
-    if (currentTime.seconds == 0) { 
-      currentTime.frames = 2;
+    if (retTime.seconds == 0) { 
+      retTime.frames = 2;
 
-      if (currentTime.minutes % 10 == 0 || currentTime.minutes == 0) {
-        currentTime.frames = 0;
+      if (retTime.minutes % 10 == 0 || retTime.minutes == 0) {
+        retTime.frames = 0;
       } 
     }
-
-
   }
 
-
-  if (currentTime.minutes > 59) { 
-    currentTime.minutes = 0;
-    currentTime.hours++;
+  if (retTime.minutes > 59) { 
+    retTime.minutes = 0;
+    retTime.hours++;
   }
 
-  if (currentTime.hours > 23) { 
-    currentTime.hours = 0;
-    currentTime.seconds = 0;
-    currentTime.minutes = 0;
-    currentTime.frames = 0;
+  if (retTime.hours > 23) { 
+    retTime.hours = 0;
+    retTime.seconds = 0;
+    retTime.minutes = 0;
+    retTime.frames = 0;
   }
+
+  return &retTime;
+}
+
+void ICACHE_RAM_ATTR onTimerISR(){
+  memcpy(&currentTime, getNextTimecode(currentTime), sizeof(TIMECODE));
 }
 
 /**
@@ -525,7 +528,7 @@ void showFrameRate() {
   lc.setDigit(0,3,TENS(frameRate),false);
   lc.setDigit(0,2,ONES(frameRate),false);
 
-  if (config.drop) {
+  if (config.frameRate == DROP_INDEX) { // 29.97 drop
     lc.setChar(0,0,'d',false);
   }
 }
@@ -825,7 +828,7 @@ char *timecodeToString(TIMECODE *tc) {
     tc->hours, 
     tc->minutes, 
     tc->seconds, 
-    config.drop ? ';' : ':', 
+    config.frameRate == DROP_INDEX ? ';' : ':', 
     tc->frames); 
   return buf;
 }
@@ -839,7 +842,7 @@ void dumpHistory() {
 
   Serial.print(frameRate);
   Serial.print(" fps, ");
-  Serial.println(config.drop ? "Drop" : "Non-Drop");
+  Serial.println(config.frameRate == DROP_INDEX  ? "Drop" : "Non-Drop");
 
   for (int i = 0; i < MAX_CLAPS; i++) {
     sprintf(buf, "%02d %s", i, timecodeToString(&clapHistory[i]));

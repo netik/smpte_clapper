@@ -7,7 +7,6 @@ typedef struct configuration {
   int displayBrightness;
   // framerate represented based on config options, not actual rate.
   int frameRate; 
-  bool drop;
   bool internal;
   int timeOut;
   int feed;
