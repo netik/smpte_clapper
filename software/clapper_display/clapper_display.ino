@@ -292,8 +292,17 @@ MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
           lc.clearDisplay(0);
           lc.setString(0,7, "-RE5ET-", 0);
           delay(1000);
+          
+          /* disable the timers and interrupts or we will die during EEPROM save.*/
+          timer1_detachInterrupt();
+          timer1_disable();
+          detachInterrupt(digitalPinToInterrupt(PIN_TC_IN));
+
           initConfig();
           unpackConfig();
+          
+          attachInterrupt(digitalPinToInterrupt(PIN_TC_IN), handleTCChange, CHANGE);  
+          setupTimer();
         }
       break;
     }
@@ -526,7 +535,7 @@ void displayTimecode(TIMECODE *tc) {
 
   // frames
   lc.setDigit(0,1,TENS(tc->frames),false);
-  lc.setDigit(0,0,ONES(tc->frames),false);
+  lc.setDigit(0,0,ONES(tc->frames),state == STATE_HISTORY); // set last decimal place if in history mode.
 
   // Wink the LED once a second. (it appears to be active low?)
   // We try hard here not to write if we don't have to.
