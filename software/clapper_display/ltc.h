@@ -19,7 +19,8 @@
 #define __LTC_H__
 #include <Ticker.h>
 
-/* jna - NTSC 29.97, but seems to work for 30?  */
+/* jna - NTSC 29.97, 30 FPS  */
+/* does not work for 24 fps or 25 fps! */
 #define uMax0 521 // Any time greater than this is to big
 #define uMax1 261 // Midpoint timing between a 1 and 0 bit length
 #define uMin1 104 // Any time less than this is to short

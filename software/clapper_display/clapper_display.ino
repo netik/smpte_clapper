@@ -100,8 +100,9 @@ const float framesToVal[] = { 23.97, 24, 25, 29.97, 29.97, 30 };
 /* END Globals  ------------------ */
 
 /* prototypes */
-
 void setupTimer();
+void ICACHE_RAM_ATTR handleTCChange();
+/* END prototypes ---------------- */
 
 void initConfig() {
   Serial.println("Config Init.");
@@ -165,10 +166,12 @@ MD_Menu::value_t *mnuSave(MD_Menu::mnuId_t id, bool bGet) {
   // apparently it isn't possible to run timers while saving.
   timer1_detachInterrupt();
   timer1_disable();
+  detachInterrupt(digitalPinToInterrupt(PIN_TC_IN));
 
   EEPROM.put(0, config);
   EEPROM.commit();
-  
+
+  attachInterrupt(digitalPinToInterrupt(PIN_TC_IN), handleTCChange, CHANGE);  
   setupTimer();
 
   lc.setString(0,7, "stored.", 0);
@@ -188,6 +191,9 @@ MD_Menu::value_t *mnuLValueRqst(MD_Menu::mnuId_t id, bool bGet)
       case 20:
         vBuf.value = config.frameRate;
       break;
+      case 30:
+        vBuf.value = config.feed;
+      break;
       case 40:
         vBuf.value = config.timeOut;
       break;
@@ -202,6 +208,9 @@ MD_Menu::value_t *mnuLValueRqst(MD_Menu::mnuId_t id, bool bGet)
     switch(id) {
       case 20:
         config.frameRate = vBuf.value;
+      break;
+      case 30:
+        config.feed = vBuf.value;
       break;
       case 40:
         config.timeOut = vBuf.value;
@@ -278,7 +287,7 @@ MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
       case 80:
         config.plusOne = vBuf.value;
       break;
-      case 100:
+      case 85:
         if (vBuf.value == true) {
           lc.clearDisplay(0);
           lc.setString(0,7, "-RE5ET-", 0);
@@ -300,6 +309,7 @@ const PROGMEM MD_Menu::mnuItem_t mnuItm[] =
   { 5,  "brite", MD_Menu::MNU_INPUT, 5 },   // brightness
   { 10, "1ntG", MD_Menu::MNU_INPUT, 10 },   // Internal generation, defaults to off
   { 20, "Frt ", MD_Menu::MNU_INPUT, 20 },   // Frame Rate Selection
+  { 30, "feed", MD_Menu::MNU_INPUT, 30 },   // feed demand
   { 40, "Tout", MD_Menu::MNU_INPUT, 40 },   // timeout
   { 50, "jloc", MD_Menu::MNU_INPUT, 50 },   // jam lock (no run w/o lock)
   { 60, "Flash", MD_Menu::MNU_INPUT, 60 },  // flash
@@ -316,6 +326,7 @@ const PROGMEM MD_Menu::mnuInput_t mnuInp[] =
   { 5,  "brte", MD_Menu::INP_INT,  mnuIValueRqst, 1, 1, 0, 7, 0, 10, nullptr },
   { 10, "1ntG", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
   { 20, "Frt ", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listFrames },
+  { 30, "feed", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listFeed },
   { 40, "Tout", MD_Menu::INP_LIST, mnuLValueRqst, 5, 0, 0, 0, 0, 0, listTout },
   { 50, "jloc", MD_Menu::INP_BOOL, mnuBValueRqst, 1, 0, 0, 0, 0, 0, nullptr },
   { 60, "Flsh", MD_Menu::INP_LIST, mnuLValueRqst, 6, 0, 0, 0, 0, 0, listFlash },
@@ -373,20 +384,22 @@ void ICACHE_RAM_ATTR handleTCChange() {
   if (word(tc[0], tc[1]) == sync){                        // Last 2 bytes read = sync?
     bitClear(tcFlags, tcFrameError);                      // Clear framing error
     bitClear(tcFlags, tcOverrun);                         // Clear overrun error
+    
     if (bitRead(tcFlags, tcForceUpdate) == 1){
       bitClear(tcFlags, tcValid);                         // Signal last TC read
     }
-    if (bitRead(tcFlags, tcValid) == 1){                  // Last TC not read
+
+    if (bitRead(tcFlags, tcValid) == 1) {                  // Last TC not read
       bitSet(tcFlags, tcOverrun);                         // Flag overrun error
       return;                                             // Do nothing else
     }
+    
     for (uint8_t x = 0; x < sizeof(xtc); x++){            // Copy buffer without sync word
       xtc[x] = tc[x + 2];
     }
 #ifdef DEBUG_TC_SERIAL
     Serial.println("valid tc");
 #endif
-
     // we have valid timecode so we can reset our timer, which will now be jam sync'd to the
     // timecode. Our frame timer should now match their frame timer give or take a few uS
 
@@ -481,7 +494,9 @@ TIMECODE *getNextTimecode(TIMECODE tc) {
 }
 
 void ICACHE_RAM_ATTR onTimerISR(){
-  memcpy(&currentTime, getNextTimecode(currentTime), sizeof(TIMECODE));
+  //if (!bitRead(tcFlags, tcValid) && config.internal) {
+    memcpy(&currentTime, getNextTimecode(currentTime), sizeof(TIMECODE));
+  //}
 }
 
 /**
@@ -516,7 +531,7 @@ void displayTimecode(TIMECODE *tc) {
   // Wink the LED once a second. (it appears to be active low?)
   // We try hard here not to write if we don't have to.
 
-  if (tc->frames < (frameRate/2)) { 
+  if (tc->frames < 5) { 
     digitalWrite(LED_BUILTIN, false);
   } else {
     digitalWrite(LED_BUILTIN, true);
@@ -858,7 +873,7 @@ void loop() {
   buttonClapper.check();
   
   // Do we have valid timecode yet?
-  if (bitRead(tcFlags, tcValid)) {
+  if (bitRead(tcFlags, tcValid) == 1) {
 #ifdef DEBUG_TC_SERIAL
     char timeCode[12];               // For example code another buffer to write decoded timecode
     char userBits[12];
