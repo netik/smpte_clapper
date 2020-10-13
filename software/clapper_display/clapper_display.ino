@@ -864,7 +864,8 @@ char *timecodeToString(TIMECODE *tc) {
 void dumpHistory() {
   char buf[18];
 
-  Serial.print(frameRate);
+  Serial.println();
+  Serial.print(framesToVal[config.frameRate]);
   Serial.print(" fps, ");
   Serial.println(config.frameRate == DROP_INDEX  ? "Drop" : "Non-Drop");
 

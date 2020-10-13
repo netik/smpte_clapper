@@ -1,5 +1,13 @@
 # Freecode User Manual
 
+## What is this?
+
+Freecode is an open source *digital timecode slate* based on the ESP8266. It is designed to emulate expensive Hollywood style slates. It consists of a schematic, printed circuit board design, and firmware, written in Arduino's *sketch* format and C/C++. 
+
+This is the user manual. For implementation details, see README.MD, the code, and the schematics.
+
+## Startup
+
 On reset, The system will display "freecode" followed by the build number (bld 1.0), the current FPS rate, and timecode will start.
 
 If the internal generator is active, the LED will blink at a rate of one blink per frame and will stay on for the first five frames of each second.
@@ -12,17 +20,17 @@ In history mode, the very last decimal point is lit to indicate that you are not
 
 ## Buttons
 
-There are four buttons on the device:
-UP, DOWN, SELECT, and RESET
+There are four buttons on the device: **UP**, **DOWN**, **SELECT**, and **RESET**.
 
-UP DOWN and SELECT can be used to walk through menus and select options.
-RESET is hard reset, resetting the ESP8266. 
+**UP** **DOWN** and **SELECT** can be used to walk through menus and select options.
 
-Additionally a hall-effect switch located at the top is used to detect the opening and closing of the sticks, aka the CLAP switch.
+**RESET** is hard reset, resetting the microcontroller. In normal operation, you should never have to press the **RESET** button. 
 
-## What happens on a clap?
+Additionally a hall-effect switch and magnet will be located at the top is used to detect the opening and closing of the sticks, This is the CLAP switch.
 
-When the sticks are closed, no timecode is displayed to save power. When the sticks are opened, the current timecode is displayed until the sticks are closed again or the *Tout* timer is exhausted.
+## What happens on a "clap" ?
+
+When the sticks are closed initally, no timecode is displayed to save power. When the sticks are opened, the current timecode is displayed until the sticks are closed again or the *Tout* timer is exhausted.
 
 If the sticks are closed after being opened, the system will register a *clap*.
 
@@ -39,29 +47,38 @@ Note that you cannot clap again until this sequence of events completes.
 
 ## Menu
 
-To enter the menu, press SELECT from TIMECODE MODE. From here, you can use UP and DOWN to walk through the menus.
-SELECT will enter a menu option.
+To enter the menu, press **SELECT** from **TIMECODE MODE**. 
 
-UP and DOWN can be used to manipulate the display
+From there, you can use **UP** and **DOWN** to walk through the menus. **SELECT** will select a menu option for editing.
 
-The menu options are:
+You'll know you're in edit mode when the = (equals) sign appears in the display.
 
-| Option | Values | Use |
-|--------|--------|--------|
-|Bright  | 1 - 7    | display brightness    |
-|IntG    | y / n  | Internal Clock on/off. If off and no valid timecode is provded on the timecode input, the clock will not advance. |
-|frt     | 23, 24, 25, 29, 29d, 30 | Frame Rate. 29 is 29.97, 29d is 29.97 drop|
-|Feed    | 0, 2, 4, 6, 8 | Feed timeout. When these many hours have elapsed, timecode will stop and the slate will demand to be jam-sync'd again. 0 disabled. Ignored unless jloc is set to true. |
-|Tout    | 0, 15, 30, 60, 120 | Open Sticks Timeout (in seconds) |
-|jloc    | y / n | Stops timecode from running unless the slate has been jam-sync'd at least once. |
-|Flash   | 0 - 5 | When the slate closes (a "clap"), the current timecode will be displayed for these many frames and displayed at maximum brightness. 0 disables. |
-|Hold    | 0, 5, 15, 30, 60, 120 | How many seconds to display the clapped timecode for, after the flash and user bits are displayed. 0 disables. |
-|Plus1   | y / n | Adds one to the displayed time code so that the timecode is in "real time". Normally the displayed timecode is always one frame behind. |
-|init    | -- | Selecting this, and then confirming by selecting "y" will reset the configuration to factory defaults. |
-|store   | -- | Selecting this option will save the configuration. The system will display "Stored." and then you will be returned to TIMECODE MODE |
-|return  | -- | Selecting this menu option will return to TIMECODE MODE. A quick way out of the menu system is to press UP and select after hitting select the first time. |
+**UP** and **DOWN** can be used to change values once a menu option has been seleted. 
 
-The menu options roll-over automatically. (i.e. from "return" the next option is "Bright.")
+To register the selection hit **SELECT** again.
+
+**Note that the slate's configuration is not saved until STORE is selected from the menu.**
+
+Configuration options are temporary until you **STORE** them.
+
+### Menu options
+
+| Option | Possible Values | Default on init | Use |
+|--------|--------|---------|-----|
+|brite   | 1 - 7  | 2       | Display Brightness |
+|IntG    | yes / no  | yes       | Internal generator on/off. If this is off and no valid timecode is provded on the timecode input, the clock will not advance. |
+|frt     | 23, 24, 25, 29, 29d, 30 | 30 non-drop | Frame Rate. 29 is 29.97, 29d is 29.97 drop|
+|Feed    | 0, 2, 4, 6, 8 |8| Feed timeout. When these many hours have elapsed, timecode will stop and the slate will demand to be jam-sync'd again. 0 disabled. Ignored unless jloc is set to true. |
+|Tout    | 0, 15, 30, 60, 120 | 60 | Open Sticks Timeout (in seconds) |
+|jloc    | yes / no | no | Stops timecode from running unless the slate has been jam-sync'd at least once. |
+|Flash   | 0 - 5 | 3 | When the slate closes (a "clap"), the current timecode will be displayed for these many frames and displayed at maximum brightness. 0 disables. |
+|Hold    | 0, 5, 15, 30, 60, 120 | 0 | How many seconds to display the clapped timecode for, after the flash and user bits are displayed. 0 disables. |
+|Plus1   | yes / no |no| Adds one to the displayed time code so that the timecode is in "real time". Normally the displayed timecode is always one frame behind. |
+|init    | -- | -- | Selecting this, and then confirming by selecting "y" will reset the configuration to factory defaults. |
+|store   | -- | -- |Selecting this option will save the configuration. The system will display "Stored." and then you will be returned to TIMECODE MODE |
+|return  | -- | -- |Selecting this menu option will return to TIMECODE MODE. A quick way out of the menu system is to press UP and select after hitting select the first time. |
+
+The menu option will roll over automatically. (i.e. from "return" the next option is "Bright.", and from "bright" the previous option is "return".)
 
 If you do nothing, the menu will time out in 5 seconds.
 
@@ -73,7 +90,10 @@ Note that if your slate has been jam-sync'd to an external clock you should jam 
 
 The system retains the last 16 clap events.
 
-To see previous claps, you can press UP while in timecode mode. The system will display "------- 16" showing the last clap. 
+To see previous claps, you can press UP while in timecode mode. The system will display "-----16" showing the last clap. The oldest clap is in position 1, the last in position 16.
+
+Connecting a USB cable to the device and hitting 
+
 
 UP and DOWN will move through these claps, and SELECT will exit this mode.
 
