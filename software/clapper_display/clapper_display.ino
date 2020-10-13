@@ -23,7 +23,7 @@
 #include "config.h"
 
 #include <EEPROM.h>
-#define CONFIG_VERSION 9
+#define CONFIG_VERSION 10
 #define CONFIG_MAGIC 0x110ade 
 #define MAX_CLAPS 16
 
@@ -112,7 +112,7 @@ void initConfig() {
 
   // user settable
   config.frameRate = 5;
-  config.internal = false;
+  config.internal = true;
   config.timeOut = 3;
   config.feed = 4;
   config.jamLock = false;
@@ -451,7 +451,7 @@ TIMECODE *getNextTimecode(TIMECODE tc) {
   memcpy(&retTime, &tc, sizeof(TIMECODE));
   
   retTime.frames++;
-
+  
   float maxFrames = frameRate;
   if (frameRate == 29.97) {
     // 29.97 time code is 30 fr/sec code with a rate of 29.97.
@@ -503,9 +503,9 @@ TIMECODE *getNextTimecode(TIMECODE tc) {
 }
 
 void ICACHE_RAM_ATTR onTimerISR(){
-  //if (!bitRead(tcFlags, tcValid) && config.internal) {
+  if (!bitRead(tcFlags, tcValid) && config.internal) {
     memcpy(&currentTime, getNextTimecode(currentTime), sizeof(TIMECODE));
-  //}
+  }
 }
 
 /**
@@ -751,7 +751,7 @@ void setupButtonsandPins() {
   pinMode(PIN_BTN_DOWN, INPUT);
   // since PIN_BTN_DOWN is zero, and the function is overloaded,
   // we need a cast to clear the compiler here. ugh.
-  buttonDown.init((uint8_t)PIN_BTN_DOWN, HIGH, 2);
+  buttonDown.init((uint8_t)PIN_BTN_DOWN, LOW, 2);
 
   pinMode(PIN_BTN_CLAPPER, INPUT);
   buttonClapper.init(PIN_BTN_CLAPPER, HIGH, 3);
