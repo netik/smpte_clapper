@@ -19,12 +19,6 @@
 #define __LTC_H__
 #include <Ticker.h>
 
-/* jna - NTSC 29.97, 30 FPS  */
-/* does not work for 24 fps or 25 fps! */
-#define uMax0 521 // Any time greater than this is to big
-#define uMax1 261 // Midpoint timing between a 1 and 0 bit length
-#define uMin1 104 // Any time less than this is to short
-
 typedef struct timecode {
    int hours;
    int minutes;
@@ -45,14 +39,21 @@ enum flagBits {
 typedef struct divisor {
   char name[7];
   float frameRate;                // displayed frame rate
+  bool canDropFrames;             // if user can select drop frame mode
+
   float secPerFrame;              // seconds per frame as float
   uint32_t cpuTicksPerFrame;      // cpu ticks (1uS) per frame
-  bool canDropFrames;             // if user can select drop frame mode
+  uint32_t cpuTicksPerBit;        // cpu ticks (1uS) per bit
+
+  /* edge change differences */
+  int uMax0;                      // the max timing between edge changes - Any time greater than this is to big
+  int uMax1;                      // the midpoint between a zero and a one
+  int uMin1;                      // anything less than this time is too short.
 } DIVISOR;
 
 /* prototypes */
 extern void initTimecode(TIMECODE *);
-extern uint32_t getDivisorForRate(float);
-extern const DIVISOR rateDivisors[];
+extern DIVISOR *getDivisorForRate(float);
+extern DIVISOR rateDivisors[];
 
 #endif // __LTC_H__

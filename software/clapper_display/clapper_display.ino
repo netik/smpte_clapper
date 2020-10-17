@@ -38,7 +38,7 @@ AceButton buttonSelect;
 AceButton buttonClapper;
 int buttonPending = NO_BUTTONS_PENDING;
 float frameRate = 30;
-uint32_t currentDivisor;
+DIVISOR currentDivisor;
 
 /* LTC Reader globals */
 const word sync = 0xBFFC;        // Sync word to expect when running tape forward
@@ -128,13 +128,16 @@ void initConfig() {
 
 void unpackConfig() {
   // take values from the saved configuration and set appropriate globals.
-  frameRate = framesToVal[config.frameRate];
-  currentDivisor = getDivisorForRate(frameRate);
+  DIVISOR *newDivisor = getDivisorForRate(frameRate);
 
-  if (currentDivisor == 0) {
+  if (newDivisor == NULL) {
     Serial.println("Invalid rate divisor - system will halt.\n");
+    // halp?
   }
   
+  frameRate = framesToVal[config.frameRate];
+  memcpy(&currentDivisor, newDivisor, sizeof(DIVISOR));
+
   lc.setIntensity(0, config.displayBrightness);
 
 }
@@ -208,6 +211,9 @@ MD_Menu::value_t *mnuLValueRqst(MD_Menu::mnuId_t id, bool bGet)
     switch(id) {
       case 20:
         config.frameRate = vBuf.value;
+        // reset our timers if the frame rate changes
+        hasSeenValidTC = false;
+        unpackConfig();
       break;
       case 30:
         config.feed = vBuf.value;
@@ -222,11 +228,6 @@ MD_Menu::value_t *mnuLValueRqst(MD_Menu::mnuId_t id, bool bGet)
         config.holdClap = vBuf.value;
       break;
     }
-
-    // save the config.
-    //EEPROM.put(0, config);
-    //EEPROM.commit();
-
   }
 
   return(r);
@@ -281,8 +282,6 @@ MD_Menu::value_t *mnuBValueRqst(MD_Menu::mnuId_t id, bool bGet)
       break;
       case 50:
         config.jamLock = vBuf.value;
-        Serial.print(F("\nBoolean changed to "));
-        Serial.print(vBuf.value);
       break;
       case 80:
         config.plusOne = vBuf.value;
@@ -358,12 +357,14 @@ MD_Menu M(navigation, display,  // user navigation and display
 void ICACHE_RAM_ATTR handleTCChange() {
   uint32_t edgeTimeDiff = micros() - uSeconds;            // Get time difference between this and last edge
   uSeconds = micros();                                    // Store time of this edge
-  if ((edgeTimeDiff < uMin1) or (edgeTimeDiff > uMax0)) { // Drop out now if edge time not withing bounds
+  if ((edgeTimeDiff < currentDivisor.uMin1) or (edgeTimeDiff > currentDivisor.uMax0)) { // Drop out now if edge time not withing bounds
     bitSet(tcFlags, tcFrameError);
+    Serial.println(edgeTimeDiff);
+    
     return;
   }
   
-  if (edgeTimeDiff > uMax1)                               // A zero bit arrived
+  if (edgeTimeDiff > currentDivisor.uMax1)                               // A zero bit arrived
   {
     if (bitRead(tcFlags, tcHalfOne) == 1){                // But we are expecting a 1 edge
       bitClear(tcFlags, tcHalfOne);
@@ -418,7 +419,7 @@ void ICACHE_RAM_ATTR handleTCChange() {
 
     // this device is an analyzer that has -lots- of information about error detection.
     // https://www.brainstormtime.com/OLD/um_sa1.pdf
-    timer1_write(currentDivisor);
+    timer1_write(currentDivisor.cpuTicksPerFrame);
 
     bitSet(tcFlags, tcValid);                             // Signal valid TC
     hasSeenValidTC = true;
@@ -722,7 +723,7 @@ void setupTimer() {
    * Afaik the timers count down to zero and fire the interrupt at zero. 
    * timer1_write resets this countdown.
    */
-  timer1_write(currentDivisor);
+  timer1_write(currentDivisor.cpuTicksPerFrame);
 }
 
 void setupLED() { 
@@ -791,7 +792,9 @@ void setup() {
 
   /* Master Clock ------------------------------- */
   Serial.print("Timer start with divisor ");
-  Serial.println(currentDivisor);
+  Serial.println(currentDivisor.cpuTicksPerFrame);
+  Serial.print(currentDivisor.frameRate);
+  Serial.println(" fps");
   setupTimer();
   Serial.println("Timer OK.");
 

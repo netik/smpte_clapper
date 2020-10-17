@@ -8,6 +8,7 @@
   Many people confuse 29.97 with drop-frame but they are not the
   same thing: 29.97 indicates a rate (frequency) and drop-frame
   indicates a format (count).
+  
   “29.97” time code is 30 fr/sec code with a rate of 29.97. When
   generating 29.97 time code, the generator locks to a field rate
   of 59.94 Hz (NTSC color rate) and pulls down the frame rate by
@@ -24,14 +25,14 @@
   frame status are displayed separately.
 */
 
-const DIVISOR rateDivisors[] = {
-  // name,  rate,  seconds per frame, cpu ticks/frame, can drop frames
-  { "23",  23.976, 0.041708375,  3336670, false },
-  { "24",  24,     0.041666667,  3333333, false }, 
-  { "25",  25,     0.04,         3200000, false },
-  { "29",  29,     0.0333667,    2669336, true },
-  { "29D", 29,     0.0333667,    2669336, true },
-  { "30",  30,     0.033333333,  2666667, false },
+DIVISOR rateDivisors[] = {
+  // name,  rate,   drop,  sec/frame,    tick/fr, tick/bit, umax0, umax1, umin1 
+  { "23",  23.976,  false, 0.041708375,  3336670, 417084,   521,   261,   104 },
+  { "24",  24,      false, 0.041666667,  3333333, 416667,   521,   261,   104 },
+  { "25",  25,      false, 0.04,         3200000, 400000,   521,   261,   104 },
+  { "29",  29,      false, 0.0333667,    2669336, 333667,   521,   261,   104 },
+  { "29D", 29,      true,  0.0333667,    2669336, 333667,   521,   261,   104 },
+  { "30",  30,      false, 0.033333333,  2666667, 333333,   521,   261,   104 },
   { NULL,  NULL,   NULL,         NULL,    NULL }
 };
 
@@ -41,7 +42,7 @@ void initTimecode(TIMECODE *tc) {
   memset(tc->userBits, 0, sizeof(tc->userBits));
 }
 
-uint32_t getDivisorForRate(float rate) {
+DIVISOR *getDivisorForRate(float rate) {
   int x = 0;
   while (rateDivisors[x].frameRate != rate && rateDivisors[x].frameRate != NULL) { 
     x++;
@@ -49,10 +50,10 @@ uint32_t getDivisorForRate(float rate) {
 
   if (rateDivisors[x].frameRate == NULL) { 
     // end reached
-    return 0;
+    return NULL;
   }
 
-  return rateDivisors[x].cpuTicksPerFrame;
+  return &(rateDivisors[x]);
 }
 
 // todo - timecode math lib?
