@@ -25,19 +25,28 @@
   frame status are displayed separately.
 */
 DIVISOR rateDivisors[] = {
-  // as best i can tell: 
+  // I didn't write this decoder, but... 
   //
-  // umax0 is the maximum length of a bit
-  // umin1 is too short
-  // umax1 is half bit length
+  //    umax0 is the maximum length of a bit
+  //    umin1 is the minimum length of a transition and any timing < umin1
+  //          will be discarded.
+  //    umax1 is a half bit length. Two half bit transitions == We recv'd a 1
 
-  // the code and circuit has about a 105uS delay, so you should add
-  // that time onto the umax values here.
-  
+  // the code and circuit has about a 60-100uS delay, so you should add
+  // that time onto the umax values here. e.g. umax0 here is set to
+  // 521uS for 30fps whereas 30fps is actually one full bit every 416.67uS
+  // and a half bit every 208.35uS. You also want some slop in here (5% or so)
+  // in case the transmitter isn't dead-on.
+
+  // The most important value is the length of a zero bit as everything is keyed
+  // off of it.
+
+  // tested rates: 24,29,29d,30 ok.
+
   // name,  rate,   drop,  sec/frame,    tick/fr, tick/bit, umax0, umax1, umin1 
-  { "23",  23.976,  false, 0.041708375,  3336670, 417084,   552,   276,   104 },
+  { "23",  23.976,  false, 0.041708375,  3336670, 417084,   626,   313,   104 },
   { "24",  24,      false, 0.041666667,  3333333, 416667,   626,   313,   104 },
-  { "25",  25,      false, 0.04,         3200000, 400000,   530,   264,   104 },
+  { "25",  25,      false, 0.04,         3200000, 400000,   600,   300,   104 },
   { "29",  29,      false, 0.0333667,    2669336, 333667,   521,   261,   104 },
   { "29D", 29,      true,  0.0333667,    2669336, 333667,   521,   261,   104 },
   { "30",  30,      false, 0.033333333,  2666667, 333333,   521,   261,   104 },

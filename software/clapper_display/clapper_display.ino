@@ -484,10 +484,10 @@ TIMECODE *getNextTimecode(TIMECODE tc) {
   float maxFrames = frameRate;
   if (frameRate == 29.97) {
     // 29.97 time code is 30 fr/sec code with a rate of 29.97. 
-    maxFrames = 29;
+    maxFrames = 30;
   }
 
-  if (retTime.frames > maxFrames) {
+  if (retTime.frames > maxFrames - 1) {
     retTime.frames = 0;
     retTime.seconds++;
 
