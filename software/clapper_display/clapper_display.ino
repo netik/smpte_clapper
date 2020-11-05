@@ -48,6 +48,9 @@ volatile uint8_t tcFlags = 0;    // Various flags used by ISR and main code
 uint32_t uSeconds;               // ISR store of last edge change time
 bool hasSeenValidTC = false;     // if we have ever gotten valid time code, this is true.
 
+// onboard LED
+bool led_state = false;
+
 /* the current time */
 TIMECODE currentTime;
 
@@ -65,6 +68,7 @@ LedControl lc=LedControl(PIN_DISP_DIN, PIN_DISP_CLK, PIN_DISP_CS, 1);
 
 // Menu Headers --------
 MD_Menu::value_t vBuf;  // interface buffer for values
+
 
 const PROGMEM MD_Menu::mnuHeader_t mnuHdr[] =
 {
@@ -104,6 +108,19 @@ void setupTimer();
 void ICACHE_RAM_ATTR handleTCChange();
 /* END prototypes ---------------- */
 
+char *timecodeToString(TIMECODE *tc) {
+  static char buf[20];
+
+  sprintf(buf, "%02d:%02d:%02d%c%02d",
+    tc->hours, 
+    tc->minutes, 
+    tc->seconds, 
+    config.frameRate == DROP_INDEX ? ';' : ':', 
+    tc->frames); 
+  return buf;
+}
+
+
 void initConfig() {
   Serial.println("Config Init.");
 
@@ -128,14 +145,16 @@ void initConfig() {
 
 void unpackConfig() {
   // take values from the saved configuration and set appropriate globals.
-  DIVISOR *newDivisor = getDivisorForRate(frameRate);
+  DIVISOR *newDivisor;
+  
+  frameRate = framesToVal[config.frameRate];
+  newDivisor = getDivisorForRate(frameRate);
 
   if (newDivisor == NULL) {
     Serial.println("Invalid rate divisor - system will halt.\n");
     // halp?
   }
   
-  frameRate = framesToVal[config.frameRate];
   memcpy(&currentDivisor, newDivisor, sizeof(DIVISOR));
 
   lc.setIntensity(0, config.displayBrightness);
@@ -355,16 +374,19 @@ MD_Menu M(navigation, display,  // user navigation and display
 /* LTC Reader */
 // reference: http://www.philrees.co.uk/articles/timecode.htm
 void ICACHE_RAM_ATTR handleTCChange() {
-  uint32_t edgeTimeDiff = micros() - uSeconds;            // Get time difference between this and last edge
+  uint32_t edgeTimeDiff = micros() - uSeconds;          // Get time difference between this and last edge
   uSeconds = micros();                                    // Store time of this edge
-  if ((edgeTimeDiff < currentDivisor.uMin1) or (edgeTimeDiff > currentDivisor.uMax0)) { // Drop out now if edge time not withing bounds
-    bitSet(tcFlags, tcFrameError);
-    Serial.println(edgeTimeDiff);
-    
+  // adding 10% slop here?
+  if ((edgeTimeDiff < currentDivisor.uMin1) || 
+      (edgeTimeDiff > currentDivisor.uMax0)) { // Drop out now if edge time not within bounds
+
+      bitSet(tcFlags, tcFrameError);
     return;
   }
   
-  if (edgeTimeDiff > currentDivisor.uMax1)                               // A zero bit arrived
+  //Serial.println(edgeTimeDiff);
+  
+  if (edgeTimeDiff > currentDivisor.uMax1)                // A zero bit arrived
   {
     if (bitRead(tcFlags, tcHalfOne) == 1){                // But we are expecting a 1 edge
       bitClear(tcFlags, tcHalfOne);
@@ -396,9 +418,9 @@ void ICACHE_RAM_ATTR handleTCChange() {
     bitClear(tcFlags, tcOverrun);                         // Clear overrun error
     
     if (bitRead(tcFlags, tcForceUpdate) == 1){
-      bitClear(tcFlags, tcValid);                         // Signal last TC read
+      bitClear(tcFlags, tcValid);
     }
-
+    
     if (bitRead(tcFlags, tcValid) == 1) {                  // Last TC not read
       bitSet(tcFlags, tcOverrun);                         // Flag overrun error
       return;                                             // Do nothing else
@@ -407,6 +429,7 @@ void ICACHE_RAM_ATTR handleTCChange() {
     for (uint8_t x = 0; x < sizeof(xtc); x++){            // Copy buffer without sync word
       xtc[x] = tc[x + 2];
     }
+
 #ifdef DEBUG_TC_SERIAL
     Serial.println("valid tc");
 #endif
@@ -422,6 +445,11 @@ void ICACHE_RAM_ATTR handleTCChange() {
     timer1_write(currentDivisor.cpuTicksPerFrame);
 
     bitSet(tcFlags, tcValid);                             // Signal valid TC
+
+    // wink the led
+    led_state = !led_state;
+    digitalWrite(LED_BUILTIN, led_state);
+
     hasSeenValidTC = true;
   }
 }
@@ -455,7 +483,7 @@ TIMECODE *getNextTimecode(TIMECODE tc) {
   
   float maxFrames = frameRate;
   if (frameRate == 29.97) {
-    // 29.97 time code is 30 fr/sec code with a rate of 29.97.
+    // 29.97 time code is 30 fr/sec code with a rate of 29.97. 
     maxFrames = 29;
   }
 
@@ -516,7 +544,6 @@ void ICACHE_RAM_ATTR onTimerISR(){
 void displayTimecode(TIMECODE *tc) {
   if (!hasSeenValidTC && config.jamLock && !config.internal) {
     lc.setString(0,7, "-loc'd- ", 0);
-    digitalWrite(LED_BUILTIN, true);
     return;
   }
 
@@ -541,11 +568,13 @@ void displayTimecode(TIMECODE *tc) {
   // Wink the LED once a second. (it appears to be active low?)
   // We try hard here not to write if we don't have to.
 
+  /* TODO: wink the LED when we are generating. not always. 
   if (tc->frames < 5) { 
     digitalWrite(LED_BUILTIN, false);
   } else {
     digitalWrite(LED_BUILTIN, true);
   }
+  */
 }
 
 void showFrameRate() {
@@ -571,6 +600,8 @@ void saveClap() {
 
 void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonState */)
 {
+  char buf[12];
+
   // generic button handler 
   switch (eventType) {
     case AceButton::kEventPressed:
@@ -581,9 +612,14 @@ void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonSt
         case STATE_TIMECODE:
           switch(pin) { 
             case PIN_BTN_CLAPPER:
-              Serial.println("Clap");
-              state = STATE_CLAP;
               saveClap();
+              Serial.print("Clap at ");
+              sprintf(buf, "%s", timecodeToString(&clapHistory[MAX_CLAPS-1]));
+              Serial.print(buf);
+              Serial.print(" ");
+              Serial.print(currentDivisor.frameRate);
+              Serial.println(" fps");
+              state = STATE_CLAP;
             break;
             case PIN_BTN_SELECT:
               state = STATE_MENU;
@@ -782,9 +818,9 @@ void setup() {
   EEPROM.begin(sizeof(CONFIG));
   loadConfig();
 
-  Serial.println("Start unpack.");
+  Serial.println("Config: unpack.");
   unpackConfig();
-  Serial.println("Config unpack ok.");
+  Serial.println("Config: unpack ok.");
 
   /* LED Setup ---------------------------------- */
   setupLED();
@@ -792,19 +828,21 @@ void setup() {
 
   /* Master Clock ------------------------------- */
   Serial.print("Timer start with divisor ");
-  Serial.println(currentDivisor.cpuTicksPerFrame);
+  Serial.print(currentDivisor.cpuTicksPerFrame);
+  Serial.print(" (");
   Serial.print(currentDivisor.frameRate);
-  Serial.println(" fps");
+  Serial.println(" fps)");
+
   setupTimer();
-  Serial.println("Timer OK.");
+  Serial.println("Timer is Go.");
 
   /* Buttons and Blinky ------------------------- */
   setupButtonsandPins();
-  Serial.println("Buttons OK.");
+  Serial.println("Buttons setup OK.");
 
   /* Setup the interrupt on TC_IN for LTC reading */
   attachInterrupt(digitalPinToInterrupt(PIN_TC_IN), handleTCChange, CHANGE);
-  Serial.println("Start Interrupts.");
+  Serial.println("TC Interrupt ON.");
 
   /* menu */
   M.begin();
@@ -846,18 +884,6 @@ void showHistoryPosition() {
   lc.setDigit(0,2,TENS(historyPosition+1),false);
   lc.setDigit(0,1,ONES(historyPosition+1),false);
   delay(250);
-}
-
-char *timecodeToString(TIMECODE *tc) {
-  static char buf[20];
-
-  sprintf(buf, "%02d:%02d:%02d%c%02d",
-    tc->hours, 
-    tc->minutes, 
-    tc->seconds, 
-    config.frameRate == DROP_INDEX ? ';' : ':', 
-    tc->frames); 
-  return buf;
 }
 
 /**
@@ -932,14 +958,14 @@ void loop() {
     currentTime.frames = tcFrames;
 
     // Finished with TC so signal to ISR it can overwrite it with next TC
-    bitClear(tcFlags, tcValid);                          
+    bitClear(tcFlags, tcValid);    
   }
 
   // like a video game, we have a state machine.
   switch(state) {
     case STATE_HELLO:
       // say hi!
-      Serial.println("Welcome to Freecode!\n");
+      Serial.println("-=>: Welcome to freec0de! :<=-\n");
       lc.setString(0,7,"FREECODE", 0);
       delay(1000);
       lc.clearDisplay(0);

@@ -24,12 +24,20 @@
   or 29.97 fr/sec. For that reason, the frame rate and the drop
   frame status are displayed separately.
 */
-
 DIVISOR rateDivisors[] = {
+  // as best i can tell: 
+  //
+  // umax0 is the maximum length of a bit
+  // umin1 is too short
+  // umax1 is half bit length
+
+  // the code and circuit has about a 105uS delay, so you should add
+  // that time onto the umax values here.
+  
   // name,  rate,   drop,  sec/frame,    tick/fr, tick/bit, umax0, umax1, umin1 
-  { "23",  23.976,  false, 0.041708375,  3336670, 417084,   521,   261,   104 },
-  { "24",  24,      false, 0.041666667,  3333333, 416667,   521,   261,   104 },
-  { "25",  25,      false, 0.04,         3200000, 400000,   521,   261,   104 },
+  { "23",  23.976,  false, 0.041708375,  3336670, 417084,   552,   276,   104 },
+  { "24",  24,      false, 0.041666667,  3333333, 416667,   626,   313,   104 },
+  { "25",  25,      false, 0.04,         3200000, 400000,   530,   264,   104 },
   { "29",  29,      false, 0.0333667,    2669336, 333667,   521,   261,   104 },
   { "29D", 29,      true,  0.0333667,    2669336, 333667,   521,   261,   104 },
   { "30",  30,      false, 0.033333333,  2666667, 333333,   521,   261,   104 },
@@ -41,7 +49,7 @@ void initTimecode(TIMECODE *tc) {
     
   memset(tc->userBits, 0, sizeof(tc->userBits));
 }
-
+ 
 DIVISOR *getDivisorForRate(float rate) {
   int x = 0;
   while (rateDivisors[x].frameRate != rate && rateDivisors[x].frameRate != NULL) { 
