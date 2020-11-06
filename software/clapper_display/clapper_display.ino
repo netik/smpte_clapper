@@ -1,9 +1,9 @@
 /**
- * freeslate
+ * freec0de
  * J. Adams <jna@retina.net> 
  * 9/2020
  * 
- * An open soe SMPTE clapper board, similar to commercial solutions.
+ * An open source SMPTE clapper board, similar to commercial solutions.
  * Reads, writes, and displays SMPTE time code.
  * 
  */
@@ -94,7 +94,7 @@ const char flashToVal[] = { 0, 1, 2, 3, 4, 5 };
 
 /* how long to hold for */
 const PROGMEM char listHold[] = "0|5|15|30|60|120";
-const char flashToHold[] = { 0, 5,15,30,60,120 };
+const char flashToHold[] = { 0, 5, 15, 30, 60, 120 };
 
 /* frame rate */
 const PROGMEM char listFrames[] = "23|24|25|29|29D|30";
@@ -393,7 +393,7 @@ void ICACHE_RAM_ATTR handleTCChange() {
       clearBuffer(tc, sizeof(tc));
       return;
     }
-    
+
     // 0 bit
     shiftRight(tc, sizeof(tc));                           // Rotate buffer right
     // Shift replaces top bit with zero so nothing else to do
@@ -532,7 +532,7 @@ TIMECODE *getNextTimecode(TIMECODE tc) {
 }
 
 void ICACHE_RAM_ATTR onTimerISR(){
-  if (!bitRead(tcFlags, tcValid) && config.internal) {
+  if (!bitRead(tcFlags, tcValid)) {
     memcpy(&currentTime, getNextTimecode(currentTime), sizeof(TIMECODE));
   }
 }
@@ -542,7 +542,7 @@ void ICACHE_RAM_ATTR onTimerISR(){
  * @params {Integer} val number of milliseconds
  **/ 
 void displayTimecode(TIMECODE *tc) {
-  if (!hasSeenValidTC && config.jamLock && !config.internal) {
+  if (!hasSeenValidTC && config.jamLock) {
     lc.setString(0,7, "-loc'd- ", 0);
     return;
   }

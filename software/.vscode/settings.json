@@ -4,5 +4,9 @@
     "GPIO",
     "NTSC",
     "SMPTE"
-  ]
+  ],
+  "search.exclude": {
+    "**/_build": true,
+    "**/tmp": true
+  }
 }

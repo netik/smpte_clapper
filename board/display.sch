@@ -941,6 +941,84 @@ Text GLabel 1000 4650 0    50   Input ~ 0
 DISP_LOAD
 Text Notes 4500 3650 0    50   ~ 10
 3.3v to 5v level shift
+$Comp
+L Device:C C?
+U 1 1 5FA69937
+P 3950 6500
+AR Path="/5FA69937" Ref="C?"  Part="1" 
+AR Path="/5F5A5FDC/5FA69937" Ref="C203"  Part="1" 
+F 0 "C203" H 4065 6546 50  0000 L CNN
+F 1 "10uF" H 4065 6455 50  0000 L CNN
+F 2 "" H 3988 6350 50  0001 C CNN
+F 3 "~" H 3950 6500 50  0001 C CNN
+	1    3950 6500
+	1    0    0    -1  
+$EndComp
+$Comp
+L Device:C C?
+U 1 1 5FA6993D
+P 4400 6500
+AR Path="/5FA6993D" Ref="C?"  Part="1" 
+AR Path="/5F5A5FDC/5FA6993D" Ref="C204"  Part="1" 
+F 0 "C204" H 4515 6546 50  0000 L CNN
+F 1 "100uF" H 4515 6455 50  0000 L CNN
+F 2 "" H 4438 6350 50  0001 C CNN
+F 3 "~" H 4400 6500 50  0001 C CNN
+	1    4400 6500
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	3950 6650 3950 6800
+Wire Wire Line
+	3950 6800 4150 6800
+Wire Wire Line
+	4400 6800 4400 6650
+$Comp
+L power:GND #PWR?
+U 1 1 5FA69946
+P 4150 6900
+AR Path="/5FA69946" Ref="#PWR?"  Part="1" 
+AR Path="/5F5A5FDC/5FA69946" Ref="#PWR0208"  Part="1" 
+F 0 "#PWR0208" H 4150 6650 50  0001 C CNN
+F 1 "GND" H 4155 6727 50  0000 C CNN
+F 2 "" H 4150 6900 50  0001 C CNN
+F 3 "" H 4150 6900 50  0001 C CNN
+	1    4150 6900
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	4150 6900 4150 6800
+Connection ~ 4150 6800
+Wire Wire Line
+	4150 6800 4400 6800
+Text Notes 5100 3250 0    50   ~ 10
+Decoupling Caps\n
+$Comp
+L power:+3.3V #PWR?
+U 1 1 5FA69950
+P 3950 6100
+AR Path="/5FA69950" Ref="#PWR?"  Part="1" 
+AR Path="/5F5A5FDC/5FA69950" Ref="#PWR0207"  Part="1" 
+F 0 "#PWR0207" H 3950 5950 50  0001 C CNN
+F 1 "+3.3V" H 3965 6273 50  0000 C CNN
+F 2 "" H 3950 6100 50  0001 C CNN
+F 3 "" H 3950 6100 50  0001 C CNN
+	1    3950 6100
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	3950 6100 3950 6200
+Wire Wire Line
+	3950 6200 4400 6200
+Wire Wire Line
+	4400 6200 4400 6350
+Connection ~ 3950 6200
+Wire Wire Line
+	3950 6200 3950 6350
+Text Notes 3800 6300 0    50   ~ 10
+U1\n
+Text Notes 4300 6100 0    50   ~ 0
+Place near U210
 Wire Bus Line
 	900  1200 900  4350
 Wire Bus Line
