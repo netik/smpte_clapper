@@ -76,6 +76,8 @@ Setting up the dev environment
   arduino-cli lib install ACEButton
 ```
 
+Acebutton has to be latest version (>= 1.7.0) to support the LadderButtonConfig
+
 6. You have to patch the LEDControl Library from Arduino. My copy has a lot more letters in it than the stock library, and is easier to read.
 
 On Mac and Unix machines, The arduino data directory is

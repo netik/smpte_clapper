@@ -132,7 +132,7 @@
 #define PIN_TC_IN        PIN_G_D5 // INPUT cap and voltage divider
 
 /* buttons */
-#define PIN_BTN_CLAPPER  PIN_G_D6 // test ok INPUT, 
+#define PIN_BTN_CLAPPER  A0       // test ok INPUT, 
 #define PIN_BTN_UP       PIN_G_D7 // test ok INPUT, switch should be tied to +3.3v
 #define PIN_BTN_DOWN     PIN_G_D3 // test ok INPUT, switch needs to be tied to ground, do not press at boot.
 #define PIN_BTN_SELECT   PIN_G_D8 // test ok INPUT, w/pulldown, switch should be tied to +3.3v

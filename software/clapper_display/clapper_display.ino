@@ -32,10 +32,13 @@ using namespace ace_button;
 
 /* Globals  ------------------ */
 /* button defines */
-AceButton buttonUp;
-AceButton buttonDown;
-AceButton buttonSelect;
-AceButton buttonClapper;
+// Create 2 ButtonConfigs. The System ButtonConfig is not used.
+ButtonConfig btnConfig1;
+
+static AceButton buttonUp(&btnConfig1);
+static AceButton buttonDown(&btnConfig1);
+static AceButton buttonSelect(&btnConfig1);
+
 int buttonPending = NO_BUTTONS_PENDING;
 float frameRate = 30;
 DIVISOR currentDivisor;
@@ -598,6 +601,24 @@ void saveClap() {
   memcpy(&clapHistory[MAX_CLAPS-1], &currentTime, sizeof(TIMECODE));
 }
 
+void handleClapper() {
+  // Handle the resistor divider network which only has one button for now.
+  char buf[12];
+
+  switch (state) {
+    case STATE_TIMECODE:
+      saveClap();
+      Serial.print("Clap at ");
+      sprintf(buf, "%s", timecodeToString(&clapHistory[MAX_CLAPS-1]));
+      Serial.print(buf);
+      Serial.print(" ");
+      Serial.print(currentDivisor.frameRate);
+      Serial.println(" fps");
+      state = STATE_CLAP;
+    break;
+  }
+}    
+
 void handleButtonEvent(AceButton* button, uint8_t eventType, uint8_t /* buttonState */)
 {
   char buf[12];
@@ -775,9 +796,9 @@ void setupLED() {
 }
 
 void setupButtonsandPins() {
-  ButtonConfig* baseConfig = ButtonConfig::getSystemButtonConfig();
-  baseConfig->setEventHandler(handleButtonEvent);
-  baseConfig->setFeature(ButtonConfig::kFeatureClick);
+
+  btnConfig1.setEventHandler(handleButtonEvent);
+  btnConfig1.setFeature(ButtonConfig::kFeatureClick);
   
   pinMode(PIN_BTN_SELECT, INPUT);
   buttonSelect.init(PIN_BTN_SELECT, HIGH, 0);
@@ -789,9 +810,6 @@ void setupButtonsandPins() {
   // since PIN_BTN_DOWN is zero, and the function is overloaded,
   // we need a cast to clear the compiler here. ugh.
   buttonDown.init((uint8_t)PIN_BTN_DOWN, LOW, 2);
-
-  pinMode(PIN_BTN_CLAPPER, INPUT);
-  buttonClapper.init(PIN_BTN_CLAPPER, HIGH, 3);
 
   pinMode(LED_BUILTIN, OUTPUT);
 
@@ -808,7 +826,7 @@ void setupWiFi() {
 void setup() {
   // Start serial
   Serial.begin(115200);
-  delay(1000); // wait for serial to settle
+  while (! Serial); // wait for serial to settle.
 
   // kill WiFi
   setupWiFi();
@@ -904,13 +922,51 @@ void dumpHistory() {
   }
 }
 
+void debounceClapper() {
+  static uint16_t lastButtonState = 0;
+  static long lastDebounceTime = 0;
+  static uint16_t buttonState;
+
+  long debounceDelay = 8;
+
+  uint16_t reading = analogRead(PIN_BTN_CLAPPER);
+#ifdef CALIBRATE_ANALOG
+  // dump the A0 value. Right now with a 40k and 10k voltage divider, 
+  // it reads about 865 on closure
+  Serial.println(reading);
+#endif
+  // If the switch changed, due to noise or pressing:
+  if (reading != lastButtonState) {
+    // reset the debounce timer
+    lastDebounceTime = millis();
+  }
+
+  if ((millis() - lastDebounceTime) > debounceDelay) {
+    // whatever the reading is at, it's been there for longer
+    // than the debounce delay, so take it as the actual current state:
+
+    // if the button state has changed:
+    if (reading != buttonState) {
+      buttonState = reading;
+
+      // only toggle the LED if the new button state is HIGH
+      if (buttonState > 500) {
+        // we have a valid clap.
+        handleClapper();
+      }
+    }
+  }
+
+  lastButtonState = reading;
+}
+
 void loop() {
   // check all the buttons for activity.
   buttonUp.check();
   buttonDown.check();
   buttonSelect.check();
-  buttonClapper.check();
-  
+  debounceClapper();
+
   // Do we have valid timecode yet?
   if (bitRead(tcFlags, tcValid) == 1) {
 #ifdef DEBUG_TC_SERIAL
